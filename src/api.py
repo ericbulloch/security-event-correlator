@@ -14,7 +14,6 @@ async def ingest_events(events: list[dict]) -> dict:
                 status_code=400,
                 detail="No events provided"
             )
-        
         normalized_events = []
         for raw_event in events:
             try:
@@ -23,13 +22,11 @@ async def ingest_events(events: list[dict]) -> dict:
                 normalized_events.append(normalized)
             except Exception as e:
                 raise HTTPException(
-                    status_code=422,
+                    status_code=400,
                     detail=f"Invalid event format: {str(e)}"
                 )
-        
         for event in normalized_events:
             event_store.add(event)
-        
         return {
             "status": "success",
             "events_stored": len(normalized_events),
