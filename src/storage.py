@@ -5,12 +5,10 @@ import sqlite3
 import json
 
 class EventStore:
-    def __init__(self, use_sqlite: bool = False, db_path: str = "events.db"):
+    def __init__(self, db_path: str = "events.db"):
         self.events: List[SecurityEvent] = []
-        self.use_sqlite = use_sqlite
         self.db_path = db_path
-        if use_sqlite:
-            self._init_database()
+        self._init_database()
     
     def _init_database(self):
         conn = sqlite3.connect(self.db_path)
@@ -39,13 +37,10 @@ class EventStore:
         conn.close()
     
     def add(self, event: SecurityEvent) -> str:
-        event_id = f"evt_{len(self.events)}_{int(datetime.now().timestamp())}"
-        self.events.append(event)
-        if self.use_sqlite:
-            self._store_to_sqlite(event_id, event)
+        event_id = self._store_to_sqlite(event_id, event)
         return event_id
     
-    def _store_to_sqlite(self, event_id: str, event: SecurityEvent):
+    def _store_to_sqlite(self, event: SecurityEvent):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -62,21 +57,21 @@ class EventStore:
             event.resource,
             json.dumps(event.details)
         ))
-        
+        inserted_id = cursor.lastrowid
         conn.commit()
         conn.close()
+        
+        return inserted_id
     
     def clear(self):
-        self.events = []
-        if self.use_sqlite:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM events')
-            conn.commit()
-            conn.close()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM events')
+        conn.commit()
+        conn.close()
     
     def count(self) -> int:
         return len(self.events)
 
 
-event_store = EventStore(use_sqlite=True)
+event_store = EventStore()
