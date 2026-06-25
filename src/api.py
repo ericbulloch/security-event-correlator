@@ -22,7 +22,7 @@ async def ingest_events(events: list[dict]) -> dict:
                 normalized_events.append(normalized)
             except Exception as e:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=422,
                     detail=f"Invalid event format: {str(e)}"
                 )
         for event in normalized_events:
