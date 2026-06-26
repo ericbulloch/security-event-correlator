@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from typing import list
-from src.models import SecurityEvent
+from src.models import Alert, SecurityEvent
 from src.storage import event_store
 from src.normalizer import normalize_event
 
+
 app = FastAPI()
+
 
 @app.post("/events/ingest")
 async def ingest_events(events: list[dict]) -> dict:
@@ -40,3 +42,7 @@ async def ingest_events(events: list[dict]) -> dict:
             status_code=500,
             detail=f"Failed to store events: {str(e)}"
         )
+
+@app.get("/alerts")
+async def ingest_events() -> list[Alert]:
+    return list(Alert(id=1))
