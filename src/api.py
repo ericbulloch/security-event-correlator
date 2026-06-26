@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException
 from typing import list
+
 from src.models import Alert, SecurityEvent
 from src.storage import event_store
 from src.normalizer import normalize_event
+
+from fastapi import FastAPI, HTTPException
 
 
 app = FastAPI()
