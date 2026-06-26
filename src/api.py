@@ -1,4 +1,5 @@
 from typing import List
+import asyncio
 from contextlib import asynccontextmanager
 
 from src.correlation_worker import correlation_worker
@@ -12,13 +13,15 @@ from fastapi import FastAPI, HTTPException
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting correlation worker...")
-    import asyncio
-    worker_task = asyncio.create_task(correlation_worker.start())
-    
-    yield
-    
-    print("Stopping correlation worker...")
-    correlation_worker.stop()
+    worker_task = None
+    try:
+        worker_task = asyncio.create_task(correlation_worker.start())
+        yield
+    finally:
+        print("Stopping correlation worker...")
+        if worker_task:
+            worker_task.cancel()
+        correlation_worker.stop()
 
 
 app = FastAPI(lifespan=lifespan)
