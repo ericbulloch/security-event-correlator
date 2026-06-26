@@ -120,7 +120,7 @@ class EventStore:
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM alerts')
         rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
+        column_names = [desc[0] for desc in cursor.description]
         alerts = []
         for row in rows:
             row_dict = dict(zip(column_names, row))
