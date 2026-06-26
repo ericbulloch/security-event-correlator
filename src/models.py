@@ -1,3 +1,4 @@
+from typing import List
 from enum import Enum
 from pydantic import BaseModel
 
@@ -32,7 +33,7 @@ class Alert(BaseModel):
     type: str,
     severity: Severity
     description: str
-    evidence: list[Evidence]
+    evidence: List[Evidence]
     ai_reasoning: str
     confidence: float
-    recommended_actions: list[str]
+    recommended_actions: List[str]
