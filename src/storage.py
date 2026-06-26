@@ -1,13 +1,13 @@
 from typing import List, Optional
 from datetime import datetime
-from src.models import SecurityEvent
 import sqlite3
 import json
+
+from src.models import Alert, SecurityEvent
 
 
 class EventStore:
     def __init__(self, db_path: str = "events.db"):
-        self.events: List[SecurityEvent] = []
         self.db_path = db_path
         self._init_database()
     
@@ -54,12 +54,17 @@ class EventStore:
         conn.commit()
         conn.close()
     
-    def add(self, event: SecurityEvent) -> str:
-        event_id = self._store_to_sqlite(event_id, event)
+    def add_security_event(self, event: SecurityEvent) -> SecurityEvent:
+        event_id = self._event_to_sqlite(event_id, event)
+        event.id = event_id
+        return event
+
+    def add_alert(self, alert: Alert) -> int:
+        event_id = self._alert_to_sqlite(event_id, event)
         event.id = event_id
         return event
     
-    def _store_to_sqlite(self, event: SecurityEvent):
+    def _event_to_sqlite(self, event: SecurityEvent) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -82,18 +87,57 @@ class EventStore:
         
         return inserted_id
 
-    def get_alerts():
+    def _alert_to_sqlite(self, alert: Alert) -> int:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO alerts 
+            (timestamp, type, severity, description, evidence, ai_reasoning, confidence, recommended_actions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            alert.timestamp.isoformat(),
+            alert.type,
+            alert.severity,
+            alert.description,
+            json.dumps(alert.evidence),
+            alert.ai_reasoning,
+            alert.confidence,
+            json.dumps(alert.recommended_actions)
+        ))
+        inserted_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
         
+        return inserted_id
+
+    def get_alerts() -> List[Alert]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM alerts')
+        rows = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        alerts = [Alert(**dict(zip(columns, row))) for row in rows]
+        cursor.close()
+        conn.close()
+        
+        return alerts
     
     def clear(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('DELETE FROM events')
+        cursor.execute('DELETE FROM alerts')
         conn.commit()
         conn.close()
     
     def count(self) -> int:
-        return len(self.events)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM events')
+        num = cursor.fetchone()[0]
+        conn.close()
+
+        return num
 
 
 event_store = EventStore()
