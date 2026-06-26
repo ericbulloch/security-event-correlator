@@ -15,6 +15,7 @@ class Evidence:
 
 
 class SecurityEvent(BaseModel):
+    id: int
     timestamp: datetime
     source: str
     event_type: str
@@ -26,7 +27,7 @@ class SecurityEvent(BaseModel):
 
 
 class Alert(BaseModel):
-    id: str
+    id: int
     timestamp: datetime
     type: str,
     severity: Severity
