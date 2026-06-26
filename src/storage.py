@@ -121,8 +121,13 @@ class EventStore:
         cursor.execute('SELECT * FROM alerts')
         rows = cursor.fetchall()
         columns = [desc[0] for desc in cursor.description]
-        alerts = [Alert(**dict(zip(columns, row))) for row in rows]
-        cursor.close()
+        alerts = []
+        for row in rows:
+            row_dict = dict(zip(column_names, row))
+            row_dict['evidence'] = json.loads(row_dict['evidence']) if isinstance(row_dict['evidence'], str) else []
+            row_dict['recommended_actions'] = json.loads(row_dict['recommended_actions']) if isinstance(row_dict['recommended_actions'], str) else []
+            alert = Alert(**row_dict)
+            alerts.append(alert)
         conn.close()
         
         return alerts
