@@ -55,14 +55,14 @@ class EventStore:
         conn.close()
     
     def add_security_event(self, event: SecurityEvent) -> SecurityEvent:
-        event_id = self._event_to_sqlite(event_id, event)
+        event_id = self._event_to_sqlite(event)
         event.id = event_id
         return event
 
-    def add_alert(self, alert: Alert) -> int:
-        event_id = self._alert_to_sqlite(event_id, event)
-        event.id = event_id
-        return event
+    def add_alert(self, alert: Alert) -> Alert:
+        alert_id = self._alert_to_sqlite(alert)
+        alert.id = alert_id
+        return alert
     
     def _event_to_sqlite(self, event: SecurityEvent) -> int:
         conn = sqlite3.connect(self.db_path)
