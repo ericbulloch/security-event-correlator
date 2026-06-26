@@ -1,3 +1,6 @@
+from src.models import SecurityEvent
+
+
 class CorrelationRule:
     @staticmethod
     def should_process(event: SecurityEvent) -> bool:
