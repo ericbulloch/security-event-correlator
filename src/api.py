@@ -59,5 +59,5 @@ async def ingest_events(events: List[dict]) -> dict:
         )
 
 @app.get("/alerts")
-async def ingest_events(self) -> List[Alert]:
-    return list(Alert(id=1))
+async def get_alerts() -> List[Alert]:
+    return event_store.get_alerts()
