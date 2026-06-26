@@ -33,6 +33,23 @@ class EventStore:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON events(source)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_severity ON events(severity)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                description TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                ai_reasoning TEXT NOT NULL,
+                confidence FLOAT NOT NULL,
+                recommended_actions TEXT NOT NULL
+            )
+        ''')
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_type ON alerts(type)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_severity ON alerts(severity)')
         
         conn.commit()
         conn.close()
@@ -64,6 +81,9 @@ class EventStore:
         conn.close()
         
         return inserted_id
+
+    def get_alerts():
+        
     
     def clear(self):
         conn = sqlite3.connect(self.db_path)
