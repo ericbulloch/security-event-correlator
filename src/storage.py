@@ -158,6 +158,15 @@ class EventStore:
         conn.commit()
         conn.close()
 
+    def mark_as_failed(self, event_id: int):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE events SET processed = 3, processed_at = ? WHERE id = ?
+        ''', (datetime.now().isoformat(), event_id))
+        conn.commit()
+        conn.close()
+
     def get_events_for_correlation(
         self,
         user: str,
