@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel
 
@@ -10,13 +11,13 @@ class Severity(Enum):
     CRITICAL = 'CRITICAL'
 
 
-class Evidence:
+class Evidence(BaseModel):
     event: str
     timestamp: datetime
 
 
 class SecurityEvent(BaseModel):
-    id: int
+    id: Optional[int]
     timestamp: datetime
     source: str
     event_type: str
@@ -30,7 +31,7 @@ class SecurityEvent(BaseModel):
 class Alert(BaseModel):
     id: int
     timestamp: datetime
-    type: str,
+    type: str
     severity: Severity
     description: str
     evidence: List[Evidence]
