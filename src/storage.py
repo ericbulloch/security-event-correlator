@@ -39,7 +39,8 @@ class EventStore:
     
     def add(self, event: SecurityEvent) -> str:
         event_id = self._store_to_sqlite(event_id, event)
-        return event_id
+        event.id = event_id
+        return event
     
     def _store_to_sqlite(self, event: SecurityEvent):
         conn = sqlite3.connect(self.db_path)
