@@ -26,13 +26,18 @@ class EventStore:
                 action TEXT NOT NULL,
                 resource TEXT,
                 details TEXT NOT NULL,
+                processed INTEGER DEFAULT 0,  -- 0=unprocessed, 1=processing, 2=processed
+                processed_at TEXT,
+                correlation_id TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON events(source)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_severity ON events(severity)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source ON events(source)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS alerts (
@@ -48,8 +53,8 @@ class EventStore:
             )
         ''')
 
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_type ON alerts(type)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_severity ON alerts(severity)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)')
         
         conn.commit()
         conn.close()
@@ -110,7 +115,7 @@ class EventStore:
         
         return inserted_id
 
-    def get_alerts() -> List[Alert]:
+    def get_alerts(self) -> List[Alert]:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM alerts')
@@ -121,6 +126,81 @@ class EventStore:
         conn.close()
         
         return alerts
+
+    def get_unprocessed_events(self, limit: int = 10) -> List[SecurityEvent]:
+        query = '''
+            SELECT * FROM events 
+            WHERE processed = 0
+            ORDER BY timestamp ASC
+            LIMIT ?
+        '''
+        
+        return self._get_events_by_query(query, (limit,))
+
+    def mark_as_processing(self, event_id: int):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE events SET processed = 1 WHERE id = ?', (event_id,))
+        conn.commit()
+        conn.close()
+
+    def mark_as_processed(self, event_id: int):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE events SET processed = 2, processed_at = ? WHERE id = ?
+        ''', (datetime.now().isoformat(), event_id))
+        conn.commit()
+        conn.close()
+
+    def get_events_for_correlation(
+        self,
+        user: str,
+        source: str,
+        event_types: List[str],
+        after: datetime,
+        before: datetime,
+        limit: int = 20
+    ) -> List[SecurityEvent]:
+        placeholders = ','.join('?' * len(event_types))
+        query = f'''
+            SELECT * FROM events 
+            WHERE user = ?
+            AND source = ?
+            AND event_type IN ({placeholders})
+            AND timestamp > ?
+            AND timestamp < ?
+            ORDER BY timestamp ASC
+            LIMIT ?
+        '''
+        params = (user, source, *event_types, after.isoformat(), before.isoformat(), limit)
+        
+        return self._get_events_by_query(query, params)
+
+    def _get_events_by_query(self, query: str, params: tuple) -> List[SecurityEvent]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        events = []
+        for row in rows:
+            row_dict = dict(zip(column_names, row))
+            event = SecurityEvent(
+                id=row_dict['id'],
+                timestamp=datetime.fromisoformat(row_dict['timestamp']),
+                source=row_dict['source'],
+                event_type=row_dict['event_type'],
+                severity=row_dict['severity'],
+                user=row_dict['user'],
+                action=row_dict['action'],
+                resource=row_dict['resource'],
+                details=json.loads(row_dict['details']) if isinstance(row_dict['details'], str) else row_dict['details']
+            )
+            events.append(event)
+        conn.close()
+        
+        return events
     
     def clear(self):
         conn = sqlite3.connect(self.db_path)
