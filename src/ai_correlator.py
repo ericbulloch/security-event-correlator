@@ -10,7 +10,7 @@ class AICorrelator:
     def __init__(self):
         self.client = Anthropic()
     
-    async def correlate(
+    def correlate(
         self, 
         current_event: SecurityEvent, 
         related_events: List[SecurityEvent]
