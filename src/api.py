@@ -1,5 +1,7 @@
 from typing import List
+from contextlib import asynccontextmanager
 
+from src.correlation_worker import correlation_worker
 from src.models import Alert, SecurityEvent
 from src.storage import event_store
 from src.normalizer import normalize_event
@@ -7,7 +9,19 @@ from src.normalizer import normalize_event
 from fastapi import FastAPI, HTTPException
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting correlation worker...")
+    import asyncio
+    worker_task = asyncio.create_task(correlation_worker.start())
+    
+    yield
+    
+    print("Stopping correlation worker...")
+    correlation_worker.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/events/ingest")
