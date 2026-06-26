@@ -4,6 +4,7 @@ from src.models import SecurityEvent
 import sqlite3
 import json
 
+
 class EventStore:
     def __init__(self, db_path: str = "events.db"):
         self.events: List[SecurityEvent] = []
