@@ -17,15 +17,15 @@ class Evidence(BaseModel):
 
 
 class SecurityEvent(BaseModel):
-    id: Optional[int]
+    id: Optional[int] = None
     timestamp: datetime
     source: str
     event_type: str
     severity: str
-    user: str
+    user: Optional[str] = None
     action: str
-    resource: str
-    details: dict
+    resource: Optional[str] = None
+    details: dict = {}
 
 
 class Alert(BaseModel):
