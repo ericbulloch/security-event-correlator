@@ -46,7 +46,7 @@ class CorrelationWorker:
             related_events = self.get_related_events(event)
             print(f"Processing event {event.id}: {event.event_type} from {event.source}")
             print(f"  Including {len(related_events)} related events for context")
-            alerts = await self.ai_correlator.correlate(event, related_events)
+            alerts = self.ai_correlator.correlate(event, related_events)
             for alert in alerts:
                 event_store.add_alert(alert)
                 print(f"  Generated alert: {alert.type} (severity: {alert.severity})")
