@@ -29,12 +29,12 @@ class SecurityEvent(BaseModel):
 
 
 class Alert(BaseModel):
-    id: int
+    id: Optional[int]
     timestamp: datetime
     type: str
-    severity: Severity
+    severity: str
     description: str
-    evidence: List[Evidence]
+    evidence: List[Evidence] = []
     ai_reasoning: str
     confidence: float
-    recommended_actions: List[str]
+    recommended_actions: List[str] = []
