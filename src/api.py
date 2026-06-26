@@ -1,4 +1,4 @@
-from typing import list
+from typing import List
 
 from src.models import Alert, SecurityEvent
 from src.storage import event_store
@@ -11,7 +11,7 @@ app = FastAPI()
 
 
 @app.post("/events/ingest")
-async def ingest_events(events: list[dict]) -> dict:
+async def ingest_events(events: List[dict]) -> dict:
     try:
         if not events:
             raise HTTPException(
@@ -21,8 +21,7 @@ async def ingest_events(events: list[dict]) -> dict:
         normalized_events = []
         for raw_event in events:
             try:
-                event = SecurityEvent(**raw_event)
-                normalized = normalize_event(event)
+                normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
             except Exception as e:
                 raise HTTPException(
@@ -30,7 +29,7 @@ async def ingest_events(events: list[dict]) -> dict:
                     detail=f"Invalid event format: {str(e)}"
                 )
         for event in normalized_events:
-            event_store.add(event)
+            event_store.add_security_event(event)
         return {
             "status": "success",
             "events_stored": len(normalized_events),
@@ -46,5 +45,5 @@ async def ingest_events(events: list[dict]) -> dict:
         )
 
 @app.get("/alerts")
-async def ingest_events() -> list[Alert]:
+async def ingest_events(self) -> List[Alert]:
     return list(Alert(id=1))
