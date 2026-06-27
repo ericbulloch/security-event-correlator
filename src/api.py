@@ -2,12 +2,13 @@ from typing import List
 import asyncio
 from contextlib import asynccontextmanager
 
+from src.auth import verify_api_key
 from src.correlation_worker import correlation_worker
 from src.models import Alert, SecurityEvent
 from src.storage import event_store
 from src.normalizer import normalize_event
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 
 @asynccontextmanager
@@ -28,7 +29,11 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/events/ingest")
-async def ingest_events(events: List[dict]) -> dict:
+async def ingest_events(
+    events: List[dict]
+    client_info: dict = Depends(verify_api_key)
+) -> dict:
+    client_name = client_info["client_name"]
     try:
         if not events:
             raise HTTPException(
@@ -38,6 +43,8 @@ async def ingest_events(events: List[dict]) -> dict:
         normalized_events = []
         for raw_event in events:
             try:
+                raw_event["details"] = raw_event.get("details", {})
+                raw_event["details"]["client"] = client_name
                 normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
             except Exception as e:
@@ -50,6 +57,7 @@ async def ingest_events(events: List[dict]) -> dict:
         return {
             "status": "success",
             "events_stored": len(normalized_events),
+            "client": client_name,
             "message": f"{len(normalized_events)} events ingested and stored successfully"
         }
     
