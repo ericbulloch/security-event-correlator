@@ -216,14 +216,6 @@ class EventStore:
         
         return events
     
-    def clear(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM events')
-        cursor.execute('DELETE FROM alerts')
-        conn.commit()
-        conn.close()
-    
     def count(self) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
