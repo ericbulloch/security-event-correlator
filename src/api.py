@@ -34,6 +34,23 @@ async def ingest_events(
     client_info: dict = Depends(verify_api_key)
 ) -> dict:
     client_name = client_info["client_name"]
+
+    is_allowed, remaining = event_store.check_rate_limit(
+        client_name,
+        100
+    )
+
+    if not is_allowed:
+        status = event_store.get_rate_limit_status(client_name)
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={
+                "X-RateLimit-Limit": str(status["limit"]),
+                "X-RateLimit-Remaining": str(status["remaining"]),
+                "X-RateLimit-Reset": status["reset_at"]
+            }
+
     try:
         if not events:
             raise HTTPException(
@@ -58,7 +75,11 @@ async def ingest_events(
             "status": "success",
             "events_stored": len(normalized_events),
             "client": client_name,
-            "message": f"{len(normalized_events)} events ingested and stored successfully"
+            "message": f"{len(normalized_events)} events ingested and stored successfully",
+            "headers": {
+                "X-RateLimit-Limit": "100",
+                "X-RateLimit-Remaining": str(remaining),
+            }
         }
     
     except HTTPException:
