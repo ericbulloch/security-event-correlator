@@ -55,6 +55,18 @@ class EventStore:
 
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT NOT NULL,
+                request_count INTEGER DEFAULT 0,
+                window_start TEXT NOT NULL,
+                UNIQUE(client_name, window_start)
+            )
+        ''')
+        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_client_name_window_start ON rate_limits(client_name, window_start)')
         
         conn.commit()
         conn.close()
@@ -215,6 +227,57 @@ class EventStore:
         conn.close()
         
         return events
+
+    def check_rate_limit(self, client_name: str, limit: int = 60) -> tuple[bool, int]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        now = datetime.now()
+        window_start = (now - timedelta(minutes=1)).isoformat()
+        cursor.execute('''
+            DELETE FROM rate_limits WHERE window_start < ?
+        ''', (window_start,))
+        current_window = now.replace(second=0, microsecond=0).isoformat()
+        cursor.execute('''
+            SELECT request_count FROM rate_limits 
+            WHERE client_name = ? AND window_start = ?
+        ''', (client_name, current_window))
+        row = cursor.fetchone()
+        request_count = row[0] if row else 0
+        if request_count >= limit:
+            conn.close()
+            return False, 0
+        cursor.execute('''
+            INSERT INTO rate_limits (client_name, request_count, window_start)
+            VALUES (?, 1, ?)
+            ON CONFLICT(client_name, window_start) 
+            DO UPDATE SET request_count = request_count + 1
+        ''', (client_name, current_window))
+        conn.commit()
+        conn.close()
+        remaining = max(0, limit - (request_count + 1))
+        
+        return True, remaining
+    
+    def get_rate_limit_status(self, client_name: str, limit: int = 100) -> dict:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        now = datetime.now()
+        current_window = now.replace(second=0, microsecond=0).isoformat()
+        cursor.execute('''
+            SELECT request_count FROM rate_limits 
+            WHERE client_name = ? AND window_start = ?
+        ''', (client_name, current_window))
+        row = cursor.fetchone()
+        request_count = row[0] if row else 0
+        conn.close()
+        window_end = datetime.fromisoformat(current_window) + timedelta(minutes=1)
+        
+        return {
+            "limit": limit,
+            "used": request_count,
+            "remaining": max(0, limit - request_count),
+            "reset_at": window_end.isoformat()
+        }
     
     def count(self) -> int:
         conn = sqlite3.connect(self.db_path)
