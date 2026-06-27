@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 from src.auth import verify_api_key
 from src.correlation_worker import correlation_worker
 from src.models import Alert, SecurityEvent
+from src.payload_validator import PayloadValidator
 from src.storage import event_store
 from src.normalizer import normalize_event
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 
 
 @asynccontextmanager
@@ -30,7 +31,7 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/events/ingest")
 async def ingest_events(
-    events: List[dict]
+    request: Request,
     client_info: dict = Depends(verify_api_key)
 ) -> dict:
     client_name = client_info["client_name"]
@@ -52,6 +53,7 @@ async def ingest_events(
             }
 
     try:
+        events = await PayloadValidator.validate_and_parse(request)
         if not events:
             raise HTTPException(
                 status_code=400,
