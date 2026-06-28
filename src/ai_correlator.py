@@ -63,8 +63,7 @@ Return ONLY valid JSON with no additional text:
                 evidence=alert_data["evidence"],
                 confidence=alert_data["confidence"] / 100.0,
                 recommended_actions=alert_data["recommended_actions"],
-                timestamp=current_event.timestamp,
-                related_events=[e.id for e in related_events]
+                timestamp=current_event.timestamp
             )
             return [alert]
         
