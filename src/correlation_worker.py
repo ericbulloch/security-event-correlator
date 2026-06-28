@@ -1,12 +1,16 @@
 from typing import List
 import asyncio
 from datetime import datetime, timedelta
+import logging
 
+from src.ai_correlator import AICorrelator
+from src.correlation_rules import CorrelationRule
+from src.error_handler import ErrorHandler
 from src.models import SecurityEvent, Alert
 from src.storage import event_store
-from src.correlation_rules import CorrelationRule
-from src.ai_correlator import AICorrelator
 
+
+logger = logging.getLogger(__name__)
 
 class CorrelationWorker:
     def __init__(self, poll_interval: int = 5):
@@ -16,26 +20,32 @@ class CorrelationWorker:
     
     async def start(self):
         self.is_running = True
-        print("Correlation worker started")
+        logger.info("Correlation worker started")
         
         while self.is_running:
             try:
                 await self.process_batch()
             except Exception as e:
-                print(f"Error in correlation worker: {e}")
+                logger.error(
+                    f"Error in correlation worker: {str(e)}",
+                    exc_info=Truue
+                )
             
             await asyncio.sleep(self.poll_interval)
     
     def stop(self):
         self.is_running = False
-        print("Correlation worker stopped")
+        logger.info("Correlation worker stopped")
     
     async def process_batch(self):
-        unprocessed_events = event_store.get_unprocessed_events(limit=10)
-        if not unprocessed_events:
-            return  # Nothing to do
-        for event in unprocessed_events:
-            await self.process_event(event)
+        try:
+            unprocessed_events = event_store.get_unprocessed_events(limit=10)
+            if not unprocessed_events:
+                return
+            for event in unprocessed_events:
+                await self.process_event(event)
+        except Exception as e:
+            logger.error("Error processing batch", exc_info=True)
     
     async def process_event(self, event: SecurityEvent):
         try:
@@ -44,15 +54,27 @@ class CorrelationWorker:
                 return
             event_store.mark_as_processing(event.id)
             related_events = self.get_related_events(event)
-            print(f"Processing event {event.id}: {event.event_type} from {event.source}")
-            print(f"  Including {len(related_events)} related events for context")
-            alerts = self.ai_correlator.correlate(event, related_events)
+            logger.debug(f"Processing event {event.id}: {event.event_type} from {event.source}")
+            logger.debug(f"  Including {len(related_events)} related events for context")
+            try:
+                alerts = self.ai_correlator.correlate(event, related_events)
+            except Exception as e:
+                ErrorHandler.handle_external_api_error(
+                    e,
+                    service_name="anthropic"
+                )
+                event_store.mark_as_failed(event.id)
+                return
+
             for alert in alerts:
                 event_store.add_alert(alert)
-                print(f"  Generated alert: {alert.type} (severity: {alert.severity})")
+                logger.info(f"Alert generated: {alert.type} (severity: {alert.severity})")
             event_store.mark_as_processed(event.id)
         except Exception as e:
-            print(f"Error processing event {event.id}: {e}")
+            logger.error(
+                f"Error processing event {event.id}",
+                exc_info=True
+            )
             event_store.mark_as_failed(event.id, str(e))
     
     def get_related_events(self, event: SecurityEvent) -> List[SecurityEvent]:
