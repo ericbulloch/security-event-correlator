@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Dict, Any
 from src.models import SecurityEvent
+from src.timestamp_validator import TimestampValidator
 
 
 class EventNormalizer:
@@ -100,34 +101,13 @@ class EventNormalizer:
     
     @staticmethod
     def normalize_timestamp(timestamp_input: Any) -> datetime:
-        if isinstance(timestamp_input, datetime):
-            return timestamp_input
-        if isinstance(timestamp_input, (int, float)):
-            # Assume Unix timestamp
-            return datetime.fromtimestamp(timestamp_input)
-        if isinstance(timestamp_input, str):
-            # Try ISO 8601
-            try:
-                return datetime.fromisoformat(timestamp_input.replace('Z', '+00:00'))
-            except:
-                pass
-            # Try common formats
-            formats = [
-                "%Y-%m-%dT%H:%M:%SZ",
-                "%Y-%m-%d %H:%M:%S",
-                "%d/%b/%Y:%H:%M:%S %z",  # Apache format
-            ]
-            for fmt in formats:
-                try:
-                    return datetime.strptime(timestamp_input, fmt)
-                except:
-                    continue
-        # Default to now if we can't parse
-        return datetime.now()
+        return TimestampValidator.validate(timestamp_input)
 
 def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
+    if 'timestamp' not in raw_event:
+        raise ValueError("Timestamp is required for all events")
     timestamp = EventNormalizer.normalize_timestamp(
-        raw_event.get('timestamp', datetime.now())
+        raw_event.get('timestamp')
     )
     source = raw_event.get('source', 'unknown').lower().strip()
     event_type = EventNormalizer.normalize_event_type(
