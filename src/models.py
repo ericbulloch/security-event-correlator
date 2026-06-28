@@ -29,7 +29,7 @@ class SecurityEvent(BaseModel):
 
 
 class Alert(BaseModel):
-    id: Optional[int]
+    id: Optional[int] = None
     timestamp: datetime
     type: str
     severity: str
