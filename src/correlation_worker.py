@@ -28,7 +28,7 @@ class CorrelationWorker:
             except Exception as e:
                 logger.error(
                     f"Error in correlation worker: {str(e)}",
-                    exc_info=Truue
+                    exc_info=True
                 )
             
             await asyncio.sleep(self.poll_interval)
@@ -57,7 +57,7 @@ class CorrelationWorker:
             logger.debug(f"Processing event {event.id}: {event.event_type} from {event.source}")
             logger.debug(f"  Including {len(related_events)} related events for context")
             try:
-                alerts = self.ai_correlator.correlate(event, related_events)
+                alerts = await self.ai_correlator.correlate(event, related_events)
             except Exception as e:
                 ErrorHandler.handle_external_api_error(
                     e,
@@ -75,7 +75,7 @@ class CorrelationWorker:
                 f"Error processing event {event.id}",
                 exc_info=True
             )
-            event_store.mark_as_failed(event.id, str(e))
+            event_store.mark_as_failed(event.id)
     
     def get_related_events(self, event: SecurityEvent) -> List[SecurityEvent]:
         lookback_seconds = CorrelationRule.get_lookback_window(event)
