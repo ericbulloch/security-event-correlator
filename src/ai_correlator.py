@@ -10,13 +10,13 @@ class AICorrelator:
     def __init__(self):
         self.client = Anthropic()
     
-    def correlate(
+    async def correlate(
         self, 
         current_event: SecurityEvent, 
         related_events: List[SecurityEvent]
     ) -> List[Alert]:
         events_text = self._format_events(current_event, related_events)
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             messages=[{
