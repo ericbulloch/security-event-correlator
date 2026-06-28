@@ -1,7 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Severity(Enum):
@@ -25,7 +25,7 @@ class SecurityEvent(BaseModel):
     user: Optional[str] = None
     action: str
     resource: Optional[str] = None
-    details: dict = {}
+    details: Optional[dict] = Field(default_factory=dict)
 
 
 class Alert(BaseModel):
@@ -34,7 +34,7 @@ class Alert(BaseModel):
     type: str
     severity: str
     description: str
-    evidence: List[Evidence] = []
+    evidence: List[Evidence] = Field(default_factory=list)
     ai_reasoning: str
     confidence: float
-    recommended_actions: List[str] = []
+    recommended_actions: List[str] = Field(default_factory=list)
