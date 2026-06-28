@@ -1,9 +1,11 @@
 from typing import List
 import asyncio
 from contextlib import asynccontextmanager
+import uuid
 
 from src.auth import verify_api_key
 from src.correlation_worker import correlation_worker
+from src.error_handler import ErrorHandler
 from src.models import Alert, SecurityEvent
 from src.payload_validator import PayloadValidator
 from src.storage import event_store
@@ -34,6 +36,7 @@ async def ingest_events(
     request: Request,
     client_info: dict = Depends(verify_api_key)
 ) -> dict:
+    request_id = str(uuid.uuid4())
     client_name = client_info["client_name"]
 
     is_allowed, remaining = event_store.check_rate_limit(
@@ -49,7 +52,8 @@ async def ingest_events(
             headers={
                 "X-RateLimit-Limit": str(status["limit"]),
                 "X-RateLimit-Remaining": str(status["remaining"]),
-                "X-RateLimit-Reset": status["reset_at"]
+                "X-RateLimit-Reset": status["reset_at"],
+                "X-Request-ID": request_id
             }
 
     try:
@@ -67,12 +71,15 @@ async def ingest_events(
                 normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
             except Exception as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Invalid event format: {str(e)}"
+                ErrorHandler.handle_validation_error(
+                    e,
+                    user_facing_message=f"Event {i}: Failed to process"
                 )
         for event in normalized_events:
-            event_store.add_security_event(event)
+            try:
+                event_store.add_security_event(event)
+            except Exception as e:
+                ErrorHandler.handle_database_error(e, request_id)
         return {
             "status": "success",
             "events_stored": len(normalized_events),
@@ -87,10 +94,7 @@ async def ingest_events(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to store events: {str(e)}"
-        )
+        ErrorHandler.handle_processing_error(e, request_id)
 
 @app.get("/alerts")
 async def get_alerts() -> List[Alert]:
