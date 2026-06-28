@@ -71,6 +71,8 @@ async def ingest_events(
                 raw_event["details"]["client"] = client_name
                 normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
+            except HTTPException:
+                raise
             except Exception as e:
                 ErrorHandler.handle_validation_error(
                     e,
