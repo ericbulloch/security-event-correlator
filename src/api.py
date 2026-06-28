@@ -55,6 +55,7 @@ async def ingest_events(
                 "X-RateLimit-Reset": status["reset_at"],
                 "X-Request-ID": request_id
             }
+        )
 
     try:
         events = await PayloadValidator.validate_and_parse(request)
@@ -64,7 +65,7 @@ async def ingest_events(
                 detail="No events provided"
             )
         normalized_events = []
-        for raw_event in events:
+        for i, raw_event in enumerate(events):
             try:
                 raw_event["details"] = raw_event.get("details", {})
                 raw_event["details"]["client"] = client_name
