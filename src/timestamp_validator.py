@@ -1,5 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
+import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 class TimestampValidator:
     MAX_AGE_DAYS = 7
@@ -12,52 +17,62 @@ class TimestampValidator:
     
     @staticmethod
     def validate(timestamp_input) -> datetime:
-        if isinstance(timestamp_input, datetime):
-            parsed_ts = timestamp_input
-        elif isinstance(timestamp_input, (int, float)):
-            # Unix timestamp - assume UTC
-            parsed_ts = datetime.fromtimestamp(timestamp_input, tz=timezone.utc)
-        elif isinstance(timestamp_input, str):
-            parsed_ts = TimestampValidator._parse_string_timestamp(timestamp_input)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timestamp type: {type(timestamp_input)}. "
-                       f"Expected string, integer (unix), or datetime object"
-            )
-        if parsed_ts.tzinfo is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Timestamp must include timezone information (UTC). "
-                       f"Received: {timestamp_input}"
-            )
-        if parsed_ts.tzinfo != timezone.utc:
-            try:
-                parsed_ts = parsed_ts.astimezone(timezone.utc)
-            except Exception as e:
+        try:
+            if isinstance(timestamp_input, datetime):
+                parsed_ts = timestamp_input
+            elif isinstance(timestamp_input, (int, float)):
+                # Unix timestamp - assume UTC
+                parsed_ts = datetime.fromtimestamp(timestamp_input, tz=timezone.utc)
+            elif isinstance(timestamp_input, str):
+                parsed_ts = TimestampValidator._parse_string_timestamp(timestamp_input)
+            else:
+                logger.warning(f"Invalid timestamp type: {type(timestamp_input)}")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Failed to convert timestamp to UTC: {str(e)}"
+                    detail="Invalid timestamp"
                 )
-        now_utc = datetime.now(timezone.utc)
-        if parsed_ts > now_utc:
-            time_diff = (parsed_ts - now_utc).total_seconds()
+            if parsed_ts.tzinfo is None:
+                logger.warning(f"Timestamp missing timezone: {timestamp_input}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid timestamp"
+                )
+            if parsed_ts.tzinfo != timezone.utc:
+                try:
+                    parsed_ts = parsed_ts.astimezone(timezone.utc)
+                except Exception as e:
+                    logger.error(f"Timezone conversion error: {str(e)}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid timestamp"
+                    )
+            now_utc = datetime.now(timezone.utc)
+            if parsed_ts > now_utc:
+                time_diff = (parsed_ts - now_utc).total_seconds()
+                logger.warning(f"Future timestamp rejected: {time_diff}s in future")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Timestamp cannot be in the future"
+                )
+            age = now_utc - parsed_ts
+            max_age = timedelta(days=TimestampValidator.MAX_AGE_DAYS)
+            if age > max_age:
+                logger.warning(f"Old timestamp rejected: {age.days} days old")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Timestamp is too old"
+                )
+            
+            return parsed_ts
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Timestamp validation error: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=400,
-                detail=f"Timestamp cannot be in the future. "
-                       f"Event timestamp is {time_diff:.1f} seconds in the future"
+                detail="Invalid timestamp"
             )
-        age = now_utc - parsed_ts
-        max_age = timedelta(days=TimestampValidator.MAX_AGE_DAYS)
-        if age > max_age:
-            age_days = age.days
-            raise HTTPException(
-                status_code=400,
-                detail=f"Timestamp too old. Events must be from the last {TimestampValidator.MAX_AGE_DAYS} days. "
-                       f"Received event from {age_days} days ago"
-            )
-        
-        return parsed_ts
     
     @staticmethod
     def _parse_string_timestamp(timestamp_str: str) -> datetime:
@@ -69,8 +84,8 @@ class TimestampValidator:
                 return parsed
             except ValueError:
                 continue
+        logger.warning(f"Invalid timestamp format: {timestamp_str}")
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid timestamp format: {timestamp_str}. "
-                   f"Accepted formats: {', '.join(TimestampValidator.ALLOWED_FORMATS)}"
+            detail="Invalid timestamp"
         )
