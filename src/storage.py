@@ -278,6 +278,13 @@ class EventStore:
             "remaining": max(0, limit - request_count),
             "reset_at": window_end.isoformat()
         }
+
+    def mark_as_unprocessed(self, event_id: int):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE events SET processed = 0 WHERE id = ?', (event_id,))
+        conn.commit()
+        conn.close()
     
     def count(self) -> int:
         conn = sqlite3.connect(self.db_path)
