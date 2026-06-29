@@ -33,12 +33,6 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/health")
 async def health_check() -> dict:
-    """
-    Health check endpoint for load balancers and monitoring.
-    
-    Returns:
-        dict: Status and event count
-    """
     try:
         event_count = event_store.count()
         return {
