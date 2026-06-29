@@ -31,6 +31,32 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.get("/health")
+async def health_check() -> dict:
+    """
+    Health check endpoint for load balancers and monitoring.
+    
+    Returns:
+        dict: Status and event count
+    """
+    try:
+        event_count = event_store.count()
+        return {
+            "status": "healthy",
+            "events_stored": event_count
+        }
+    except Exception as e:
+        ErrorHandler.log_security_event(
+            event_type="health_check_failed",
+            client_name="system",
+            details=str(e)
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Service unhealthy"
+        )
+
+
 @app.post("/events/ingest")
 async def ingest_events(
     request: Request,
