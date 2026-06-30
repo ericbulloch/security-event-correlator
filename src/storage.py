@@ -143,10 +143,16 @@ class EventStore:
         
         return inserted_id
 
-    def get_alerts(self) -> List[Alert]:
+    def get_alerts(self, limit: int, offset: int, severity: str) -> List[Alert]:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM alerts')
+        if severity:
+            query = 'SELECT * FROM alerts WHERE severity = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+            params = (severity, limit, offset)
+        else:
+            query = 'SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+            params = (limit, offset)
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         alerts = []
@@ -159,6 +165,15 @@ class EventStore:
         conn.close()
         
         return alerts
+
+    def count_alerts(self) -> int:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM alerts')
+        num = cursor.fetchone()[0]
+        conn.close()
+
+        return num
 
     def get_unprocessed_events(self, limit: int = 10) -> List[SecurityEvent]:
         query = '''
