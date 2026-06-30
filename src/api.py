@@ -11,7 +11,7 @@ from src.payload_validator import PayloadValidator
 from src.storage import event_store
 from src.normalizer import normalize_event
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 
 @asynccontextmanager
@@ -51,7 +51,7 @@ async def health_check() -> dict:
         )
 
 
-@app.post("/events/ingest")
+@app.post("/v1/events/ingest")
 async def ingest_events(
     request: Request,
     client_info: dict = Depends(verify_api_key)
@@ -119,6 +119,21 @@ async def ingest_events(
     except Exception as e:
         ErrorHandler.handle_processing_error(e, request_id)
 
-@app.get("/alerts")
-async def get_alerts() -> List[Alert]:
-    return event_store.get_alerts()
+@app.get("/v1/alerts")
+async def get_alerts(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    severity: Options[str] = Query(default=None),
+    client_info: dict = Depends(verify_api_key)
+) -> List[Alert]:
+    alerts = event_store.get_alerts(limit, offset, severity)
+    total = event_store.count_alerts(severity)
+    return {
+        "data": alerts,
+        "pagination": {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total
+        }
+    }
