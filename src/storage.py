@@ -316,6 +316,38 @@ class EventStore:
         cursor.execute('UPDATE events SET processed = 0 WHERE id = ?', (event_id,))
         conn.commit()
         conn.close()
+
+    def create_api_key(self, key_hash: str, client_name: str, rate_limit: int = 100):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO api_keys 
+            (key_hash, client_name, is_active, rate_limit)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            key_hash,
+            client_name,
+            1,
+            rate_limit,
+        ))
+        conn.commit()
+        conn.close()
+
+    def get_api_key(self, key_hash: str) -> dict:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM api_keys WHERE key_hash = ?', (key_hash, ))
+        record = cursor.fetchone()[0]
+        conn.close()
+        
+        return record
+
+    def update_last_used(self, key_hash_id: int):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (key_hash_id,))
+        conn.commit()
+        conn.close()
     
     def count(self) -> int:
         conn = sqlite3.connect(self.db_path)
