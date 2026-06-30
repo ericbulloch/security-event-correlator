@@ -103,6 +103,28 @@ class EventNormalizer:
     def normalize_timestamp(timestamp_input: Any) -> datetime:
         return TimestampValidator.validate(timestamp_input)
 
+    @staticmethod
+    def sanitize_user(value: str) -> Optional[str]:
+        if not value:
+            return None
+        value = value.strip()[:256]
+        if not re.match(r'^[a-zA-Z0-9._\-@\\]{1,256}$', value):
+            raise ValueError("Invalid characters in user field")
+        return value
+
+    @staticmethod
+    def sanitize_source(value: str) -> Optional[str]:
+        value = value.strip()[:256]
+        if not re.match(r'^[a-zA-Z0-9._\-]{1,256}$', value):
+            raise ValueError("Invalid characters in source field")
+        return value
+
+    @staticmethod
+    def sanitize_resource(value: str) -> Optional[str]:
+        value = value.strip()[:1024]
+        value = re.sub(r'[\x00-\x1f\x7f]', '', value)
+        return value
+
 def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
     if 'timestamp' not in raw_event:
         raise ValueError("Timestamp is required for all events")
@@ -110,6 +132,7 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
         raw_event.get('timestamp')
     )
     source = raw_event.get('source', 'unknown').lower().strip()
+    source = EventNormalizer.sanitize_source(source)
     event_type = EventNormalizer.normalize_event_type(
         raw_event.get('event_type', 'unknown')
     )
@@ -117,14 +140,12 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
         raw_event.get('severity', 'low')
     )
     user = raw_event.get('user', None)
-    if user:
-        user = user.lower().strip()
+    user = EventNormalizer.sanitize_user(user)
     action = EventNormalizer.normalize_action(
         raw_event.get('action', 'unknown')
     )
     resource = raw_event.get('resource', None)
-    if resource:
-        resource = str(resource).strip()
+    resource = EventNormalizer.sanitize_user(resource)
     details = raw_event.get('details', {})
     if not isinstance(details, dict):
         details = {}
