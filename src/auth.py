@@ -1,4 +1,3 @@
-# src/auth.py
 from typing import Optional
 import hashlib
 import json
