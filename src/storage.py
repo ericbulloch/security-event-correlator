@@ -166,10 +166,13 @@ class EventStore:
         
         return alerts
 
-    def count_alerts(self, severity: str) -> int:
+    def count_alerts(self, severity: Optional[str] = None) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = ?', (severity,))
+        if severity:
+            cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = ?', (severity,))
+        else:
+            cursor.execute('SELECT COUNT(*) FROM alerts')
         num = cursor.fetchone()[0]
         conn.close()
 
