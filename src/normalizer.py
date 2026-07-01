@@ -141,12 +141,12 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
     severity = EventNormalizer.normalize_severity(
         raw_event.get('severity', 'low')
     )
-    user = raw_event.get('user', None)
+    user = raw_event.get('user', '')
     user = EventNormalizer.sanitize_user(user)
     action = EventNormalizer.normalize_action(
         raw_event.get('action', 'unknown')
     )
-    resource = raw_event.get('resource', None)
+    resource = raw_event.get('resource', '')
     resource = EventNormalizer.sanitize_resource(resource)
     details = raw_event.get('details', {})
     if not isinstance(details, dict):
