@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import asyncio
 from contextlib import asynccontextmanager
 import uuid
@@ -60,8 +60,7 @@ async def ingest_events(
     client_name = client_info["client_name"]
 
     is_allowed, remaining = event_store.check_rate_limit(
-        client_name,
-        100
+        client_name
     )
 
     if not is_allowed:
