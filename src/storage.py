@@ -265,7 +265,7 @@ class EventStore:
         
         return events
 
-    def check_rate_limit(self, client_name: str, limit: int = 60) -> tuple[bool, int]:
+    def check_rate_limit(self, client_name: str, limit: int) -> tuple[bool, int]:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = datetime.now()
