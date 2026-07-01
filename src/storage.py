@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import sqlite3
 import json
 
@@ -317,18 +317,20 @@ class EventStore:
         conn.commit()
         conn.close()
 
-    def create_api_key(self, key_hash: str, client_name: str, rate_limit: int = 100):
+    def create_api_key(self, key_hash: str, client_name: str, rate_limit: int = 100, expires_in_days: int = 365):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
         cursor.execute('''
             INSERT INTO api_keys 
-            (key_hash, client_name, is_active, rate_limit)
-            VALUES (?, ?, ?, ?)
+            (key_hash, client_name, is_active, rate_limit, expires_at)
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             key_hash,
             client_name,
             1,
             rate_limit,
+            expires_at
         ))
         conn.commit()
         conn.close()
