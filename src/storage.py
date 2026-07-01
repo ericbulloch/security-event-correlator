@@ -222,12 +222,15 @@ class EventStore:
         before: datetime,
         limit: int = 20
     ) -> List[SecurityEvent]:
-        placeholders = ','.join('?' * len(event_types))
+        event_type_where = ''
+        if event_types:
+            placeholders = ','.join('?' * len(event_types))
+            event_type_where = f'AND event_type IN ({placeholders})'
         query = f'''
             SELECT * FROM events 
             WHERE user = ?
             AND source = ?
-            AND event_type IN ({placeholders})
+            {event_type_where}
             AND timestamp > ?
             AND timestamp < ?
             ORDER BY timestamp ASC
