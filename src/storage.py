@@ -166,10 +166,10 @@ class EventStore:
         
         return alerts
 
-    def count_alerts(self) -> int:
+    def count_alerts(self, severity: str) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM alerts')
+        cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = ?', (severity,))
         num = cursor.fetchone()[0]
         conn.close()
 
@@ -337,7 +337,7 @@ class EventStore:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM api_keys WHERE key_hash = ?', (key_hash, ))
-        record = cursor.fetchone()[0]
+        record = cursor.fetchone()
         conn.close()
         
         return record
