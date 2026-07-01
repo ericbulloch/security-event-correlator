@@ -337,7 +337,9 @@ class EventStore:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM api_keys WHERE key_hash = ?', (key_hash, ))
-        record = cursor.fetchone()
+        row = cursor.fetchone()
+        column_names = [desc[0] for desc in cursor.description]
+        record = dict(zip(column_names, row))
         conn.close()
         
         return record
