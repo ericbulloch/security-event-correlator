@@ -1,6 +1,6 @@
 from datetime import datetime
 import re
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 from src.models import SecurityEvent
 from src.timestamp_validator import TimestampValidator
