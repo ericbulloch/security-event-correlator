@@ -26,7 +26,7 @@ class EventStore:
                 action TEXT NOT NULL,
                 resource TEXT,
                 details TEXT NOT NULL,
-                processed INTEGER DEFAULT 0,  -- 0=unprocessed, 1=processing, 2=processed
+                processed INTEGER DEFAULT 0,  -- 0=unprocessed, 1=processing, 2=processed, 3=failed
                 processed_at TEXT,
                 correlation_id TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
