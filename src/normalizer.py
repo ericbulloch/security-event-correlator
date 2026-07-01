@@ -1,5 +1,7 @@
 from datetime import datetime
+import re
 from typing import Dict, Any
+
 from src.models import SecurityEvent
 from src.timestamp_validator import TimestampValidator
 
@@ -145,7 +147,7 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
         raw_event.get('action', 'unknown')
     )
     resource = raw_event.get('resource', None)
-    resource = EventNormalizer.sanitize_user(resource)
+    resource = EventNormalizer.sanitize_resource(resource)
     details = raw_event.get('details', {})
     if not isinstance(details, dict):
         details = {}
