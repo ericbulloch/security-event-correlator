@@ -15,7 +15,7 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> dict:
             detail="API key required"
         )
     record = event_store.get_api_key(x_api_key)
-    if record:
+    if not record:
         raise HTTPException(
             status_code=403,
             detail="Invalid API key"
