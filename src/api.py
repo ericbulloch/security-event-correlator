@@ -58,18 +58,20 @@ async def ingest_events(
 ) -> dict:
     request_id = str(uuid.uuid4())
     client_name = client_info["client_name"]
+    rate_limit = client_info["rate_limit"]
 
     is_allowed, remaining = event_store.check_rate_limit(
-        client_name
+        client_name,
+        rate_limit
     )
 
     if not is_allowed:
-        status = event_store.get_rate_limit_status(client_name)
+        status = event_store.get_rate_limit_status(client_name, rate_limit)
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded",
             headers={
-                "X-RateLimit-Limit": str(status["limit"]),
+                "X-RateLimit-Limit": str(rate_limit),
                 "X-RateLimit-Remaining": str(status["remaining"]),
                 "X-RateLimit-Reset": status["reset_at"],
                 "X-Request-ID": request_id
@@ -108,7 +110,7 @@ async def ingest_events(
             "client": client_name,
             "message": f"{len(normalized_events)} events ingested and stored successfully",
             "headers": {
-                "X-RateLimit-Limit": "100",
+                "X-RateLimit-Limit": rate_limit,
                 "X-RateLimit-Remaining": str(remaining),
             }
         }
