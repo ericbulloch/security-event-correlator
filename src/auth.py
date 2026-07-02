@@ -37,5 +37,6 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> dict:
     event_store.update_last_used(key_hash)
     client_name = record['client_name']
     return {
-        "client_name": client_name
+        "client_name": client_name,
+        "rate_limit": rate_limit
     }
