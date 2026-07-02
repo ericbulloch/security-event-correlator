@@ -236,7 +236,10 @@ class EventStore:
             ORDER BY timestamp ASC
             LIMIT ?
         '''
-        params = (user, source, *event_types, after.isoformat(), before.isoformat(), limit)
+        if event_types:
+            params = (user, source, *event_types, after.isoformat(), before.isoformat(), limit)
+        else:
+            params = (user, source, after.isoformat(), before.isoformat(), limit)
         
         return self._get_events_by_query(query, params)
 
