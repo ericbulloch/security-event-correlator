@@ -278,24 +278,24 @@ class EventStore:
         ''', (window_start,))
         current_window = now.replace(second=0, microsecond=0).isoformat()
         cursor.execute('''
-            SELECT request_count FROM rate_limits 
-            WHERE client_name = ? AND window_start = ?
-        ''', (client_name, current_window))
-        row = cursor.fetchone()
-        request_count = row[0] if row else 0
-        if request_count >= limit:
+            INSERT INTO rate_limits (client_name, window_start, request_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(client_name, window_start)
+            DO UPDATE SET request_count = request_count + 1
+            WHERE request_count < ?
+        ''', (client_name, current_window, limit))
+        if cursor.rowcount == 0:
             conn.close()
             return False, 0
         cursor.execute('''
-            INSERT INTO rate_limits (client_name, request_count, window_start)
-            VALUES (?, 1, ?)
-            ON CONFLICT(client_name, window_start) 
-            DO UPDATE SET request_count = request_count + 1
+            SELECT request_count FROM rate_limits 
+            WHERE client_name = ? AND window_start = ?
         ''', (client_name, current_window))
+        request_count = cursor.fetchone()[0]
         conn.commit()
         conn.close()
-        remaining = max(0, limit - (request_count + 1))
-        
+        remaining = max(0, limit - request_count)
+    
         return True, remaining
     
     def get_rate_limit_status(self, client_name: str, limit: int = 100) -> dict:
