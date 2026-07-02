@@ -86,27 +86,41 @@ async def ingest_events(
                 detail="No events provided"
             )
         normalized_events = []
+        normalization_errors = []
         for i, raw_event in enumerate(events):
             try:
                 raw_event["details"] = raw_event.get("details", {})
                 raw_event["details"]["client"] = client_name
+                raw_event["details"]["index"] = i
                 normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
-            except HTTPException:
-                raise
             except Exception as e:
-                ErrorHandler.handle_validation_error(
-                    e,
-                    user_facing_message=f"Event {i}: Failed to process"
-                )
+                normalization_errors.append({
+                    "index": i,
+                    "error": str(e)
+                })
+        ingestion_count = 0
+        ingestion_errors = []
         for event in normalized_events:
             try:
                 event_store.add_security_event(event)
+                ingestion_count += 1
             except Exception as e:
-                ErrorHandler.handle_database_error(e, request_id)
+                ingestion_errors.append({
+                    "error": "Could not insert into the database.",
+                    "index": event["details"]["index"]
+                })
+        status = "success"
+        if ingested_count == 0:
+            status = "failure"
+        elif ingestion_errors or normalization_errors:
+            status = "partial_success"
         return {
-            "status": "success",
-            "events_stored": len(normalized_events),
+            "status": status,
+            "events_ingested": ingestion_count,
+            "events_requested": len(events),
+            "normalization_errors": normalization_errors,
+            "ingestion_errors": ingestion_errors,
             "client": client_name,
             "message": f"{len(normalized_events)} events ingested and stored successfully",
             "headers": {
