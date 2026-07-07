@@ -13,16 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class EventStore:
-    """PostgreSQL-based event and alert store with connection pooling."""
-    
     def __init__(self, connection_string: Optional[str] = None):
-        """
-        Initialize EventStore with PostgreSQL connection.
-        
-        Args:
-            connection_string: PostgreSQL connection string (postgresql://user:password@host/dbname)
-                              If not provided, uses DATABASE_URL environment variable
-        """
         self.connection_string = connection_string or os.getenv(
             "DATABASE_URL",
             "postgresql://localhost/security_events"
@@ -30,7 +21,6 @@ class EventStore:
         self._init_database()
     
     def _get_connection(self):
-        """Get a new database connection."""
         try:
             return psycopg.connect(self.connection_string)
         except psycopg.Error as e:
@@ -38,7 +28,6 @@ class EventStore:
             raise
     
     def _init_database(self):
-        """Create all necessary tables and indexes."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -130,19 +119,16 @@ class EventStore:
             conn.close()
     
     def add_security_event(self, event: SecurityEvent) -> SecurityEvent:
-        """Add a single security event to the database."""
         event_id = self._event_to_database(event)
         event.id = event_id
         return event
 
     def add_alert(self, alert: Alert) -> Alert:
-        """Add a single alert to the database."""
         alert_id = self._alert_to_database(alert)
         alert.id = alert_id
         return alert
     
     def _event_to_database(self, event: SecurityEvent) -> int:
-        """Insert event and return its ID."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -172,7 +158,6 @@ class EventStore:
             conn.close()
 
     def _alert_to_database(self, alert: Alert) -> int:
-        """Insert alert and return its ID."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -202,7 +187,6 @@ class EventStore:
             conn.close()
 
     def get_alerts(self, limit: int, offset: int, severity: Optional[str] = None) -> List[Alert]:
-        """Retrieve alerts with optional filtering by severity."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(row_factory=dict_row)
@@ -225,14 +209,12 @@ class EventStore:
             alerts = []
             
             for row in rows:
-                # Deserialize evidence as Evidence objects
                 evidence_list = row['evidence'] if isinstance(row['evidence'], list) else []
                 evidence_objects = [
                     Evidence(**ev) if isinstance(ev, dict) else ev 
                     for ev in evidence_list
                 ]
                 
-                # Create Alert object
                 alert = Alert(
                     id=row['id'],
                     timestamp=row['timestamp'],
@@ -254,7 +236,6 @@ class EventStore:
             conn.close()
 
     def count_alerts(self, severity: Optional[str] = None) -> int:
-        """Count total alerts, optionally filtered by severity."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -273,7 +254,6 @@ class EventStore:
             conn.close()
 
     def get_unprocessed_events(self, limit: int = 10) -> List[SecurityEvent]:
-        """Get unprocessed events for correlation."""
         query = '''
             SELECT * FROM events 
             WHERE processed = 0
@@ -283,7 +263,6 @@ class EventStore:
         return self._get_events_by_query(query, (limit,))
 
     def mark_as_processing(self, event_id: int):
-        """Mark event as currently being processed."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -300,7 +279,6 @@ class EventStore:
             conn.close()
 
     def mark_as_processed(self, event_id: int):
-        """Mark event as successfully processed."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -317,7 +295,6 @@ class EventStore:
             conn.close()
 
     def mark_as_failed(self, event_id: int):
-        """Mark event as failed to process."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -342,7 +319,6 @@ class EventStore:
         before: datetime,
         limit: int = 20
     ) -> List[SecurityEvent]:
-        """Get events for correlation analysis."""
         if event_types:
             placeholders = ','.join(['%s'] * len(event_types))
             query = f'''
@@ -371,7 +347,6 @@ class EventStore:
         return self._get_events_by_query(query, params)
 
     def _get_events_by_query(self, query: str, params: tuple) -> List[SecurityEvent]:
-        """Execute query and return SecurityEvent objects."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(row_factory=dict_row)
@@ -401,7 +376,6 @@ class EventStore:
             conn.close()
 
     def check_rate_limit(self, client_name: str, limit: int) -> tuple[bool, int]:
-        """Check if client has exceeded rate limit."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -438,7 +412,6 @@ class EventStore:
             conn.close()
     
     def get_rate_limit_status(self, client_name: str, limit: int) -> dict:
-        """Get current rate limit status for a client."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -467,7 +440,6 @@ class EventStore:
             conn.close()
 
     def mark_as_unprocessed(self, event_id: int):
-        """Mark event as unprocessed."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -481,7 +453,6 @@ class EventStore:
             conn.close()
 
     def create_api_key(self, key_hash: str, client_name: str, rate_limit: int = 100, expires_in_days: int = 365):
-        """Create a new API key."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -502,7 +473,6 @@ class EventStore:
             conn.close()
 
     def get_api_key(self, key_hash: str) -> Optional[dict]:
-        """Retrieve API key by hash."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor(row_factory=dict_row)
@@ -519,7 +489,6 @@ class EventStore:
             conn.close()
 
     def update_last_used(self, key_id: int):
-        """Update last used timestamp for an API key."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -536,7 +505,6 @@ class EventStore:
             conn.close()
     
     def count(self) -> int:
-        """Count total events in database."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -550,5 +518,4 @@ class EventStore:
             conn.close()
 
 
-# Initialize event store with connection from environment
 event_store = EventStore()
