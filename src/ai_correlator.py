@@ -6,7 +6,7 @@ from functools import wraps
 import random
 
 from src.models import SecurityEvent, Alert
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def async_retry(max_retries: int = 3, base_delay: float = 1, max_delay: float = 
 
 class AICorrelator:
     def __init__(self):
-        self.client = Anthropic()
+        self.client = AsyncAnthropic()
     
     @async_retry(max_retries=3, base_delay=1, max_delay=30)
     async def _call_anthropic_api(self, prompt: str) -> str:
