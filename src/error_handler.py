@@ -1,6 +1,6 @@
 import logging
 from fastapi import HTTPException
-from typing import Optional
+from typing import Optional, NoReturn
 
 
 logging.basicConfig(
@@ -17,7 +17,7 @@ class ErrorHandler:
     def handle_validation_error(
         error: Exception,
         user_facing_message: str = "Invalid request format"
-    ) -> HTTPException:
+    ) -> NoReturn:
         logger.warning(
             f"Validation error: {type(error).__name__}: {str(error)}",
             exc_info=True
@@ -33,7 +33,7 @@ class ErrorHandler:
         error: Exception,
         request_id: Optional[str] = None,
         user_facing_message: str = "Failed to process request"
-    ) -> HTTPException:
+    ) -> NoReturn:
         error_type = type(error).__name__
         logger.error(
             f"Processing error (request_id={request_id}): {error_type}: {str(error)}",
@@ -50,7 +50,7 @@ class ErrorHandler:
     def handle_database_error(
         error: Exception,
         request_id: Optional[str] = None
-    ) -> HTTPException:
+    ) -> NoReturn:
         logger.error(
             f"Database error (request_id={request_id}): {str(error)}",
             exc_info=True
@@ -67,7 +67,7 @@ class ErrorHandler:
         error: Exception,
         service_name: str,
         request_id: Optional[str] = None
-    ) -> HTTPException:
+    ) -> NoReturn:
         logger.error(
             f"External API error ({service_name}, request_id={request_id}): {str(error)}",
             exc_info=True
