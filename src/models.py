@@ -4,13 +4,6 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class Severity(Enum):
-    LOW = 'LOW'
-    MEDIUM = 'MEDIUM'
-    HIGH = 'HIGH'
-    CRITICAL = 'CRITICAL'
-
-
 class Evidence(BaseModel):
     event: str
     timestamp: datetime
