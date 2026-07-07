@@ -158,7 +158,11 @@ class EventStore:
         alerts = []
         for row in rows:
             row_dict = dict(zip(column_names, row))
-            row_dict['evidence'] = json.loads(row_dict['evidence']) if isinstance(row_dict['evidence'], str) else []
+            evidence_list = json.loads(row_dict['evidence']) if isinstance(row_dict['evidence'], str) else []
+            row_dict['evidence'] = [
+                Evidence(**ev) if isinstance(ev, dict) else ev 
+                for ev in evidence_list
+            ]
             row_dict['recommended_actions'] = json.loads(row_dict['recommended_actions']) if isinstance(row_dict['recommended_actions'], str) else []
             alert = Alert(**row_dict)
             alerts.append(alert)
