@@ -31,13 +31,11 @@ class RabbitMQClient:
             if self._connection and self._connection.is_open:
                 self._connection.close()
 
-    def publish_event_id(self, event_id: str, client_name: str, request_id: str, schema_version: int = 1) -> None:
+    def publish_event_id(self, event_id: str, schema_version: int = 1) -> None:
         self.connect()
         assert self._channel is not None
         payload = {
             "event_id": event_id,
-            "client_name": client_name,
-            "request_id": request_id,
             "schema_version": schema_version,
             "enqueued_at": datetime.now(timezone.utc).isoformat(),
         }
