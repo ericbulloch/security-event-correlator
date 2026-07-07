@@ -1,34 +1,17 @@
 from typing import List, Optional
-import asyncio
-from contextlib import asynccontextmanager
 import uuid
 
 from src.auth import verify_api_key
-from src.correlation_worker import correlation_worker
 from src.error_handler import ErrorHandler
 from src.models import Alert, SecurityEvent
-from src.payload_validator import PayloadValidator
-from src.storage import event_store
 from src.normalizer import normalize_event
+from src.payload_validator import PayloadValidator
+from src.rabbitmq_client import rabbitmq_client
+from src.storage import event_store
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Starting correlation worker...")
-    worker_task = None
-    try:
-        worker_task = asyncio.create_task(correlation_worker.start())
-        yield
-    finally:
-        print("Stopping correlation worker...")
-        if worker_task:
-            worker_task.cancel()
-        correlation_worker.stop()
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 
 @app.get("/health")
@@ -103,15 +86,18 @@ async def ingest_events(
         ingestion_errors = []
         for event in normalized_events:
             try:
-                event_store.add_security_event(event)
+                event = event_store.add_security_event(event)
+                rabbitmq_client.publish_event_id(
+                    event_id=str(event.id)
+                )
                 ingestion_count += 1
             except Exception as e:
                 ingestion_errors.append({
-                    "error": "Could not insert into the database.",
+                    "error": "Could not insert/publish event.",
                     "index": event["details"]["index"]
                 })
         status = "success"
-        if ingested_count == 0:
+        if ingestion_count == 0:
             status = "failure"
         elif ingestion_errors or normalized_errors:
             status = "partial_success"
@@ -122,7 +108,7 @@ async def ingest_events(
             "normalized_errors": normalized_errors,
             "ingestion_errors": ingestion_errors,
             "client": client_name,
-            "message": f"{len(normalized_events)} events ingested and stored successfully",
+            "message": f"{ingestion_count} events ingested and stored successfully",
             "headers": {
                 "X-RateLimit-Limit": rate_limit,
                 "X-RateLimit-Remaining": str(remaining),
