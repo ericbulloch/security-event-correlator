@@ -44,16 +44,12 @@ class CorrelationWorker:
     def stop(self):
         self.is_running = False
         logger.info("Correlation worker stopped")
-    
-    async def process_batch(self):
-        try:
-            unprocessed_events = event_store.get_unprocessed_events(limit=10)
-            if not unprocessed_events:
-                return
-            for event in unprocessed_events:
-                await self.process_event(event)
-        except Exception as e:
-            logger.error("Error processing batch", exc_info=True)
+
+    async def process_event_id(self, event_id: str) -> None:
+        event = event_store.get_event_by_id(event_id)
+        if not event:
+            raise ValueError(f"Event not found for id={event_id}")
+        await self.process_event(event)
     
     async def process_event(self, event: SecurityEvent):
         self.processing_events.add(event.id)
