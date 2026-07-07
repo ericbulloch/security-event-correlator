@@ -123,6 +123,16 @@ class EventStore:
         event.id = event_id
         return event
 
+    def get_event_by_id(self, event_id: str) -> Optional[SecurityEvent]:
+        query = '''
+                SELECT * FROM events 
+                WHERE id = %s
+            '''
+        params = (event_id, )
+        events = self._get_events_by_query(query, params)
+
+        return events[0] if events else None
+
     def add_alert(self, alert: Alert) -> Alert:
         alert_id = self._alert_to_database(alert)
         alert.id = alert_id
