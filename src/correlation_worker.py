@@ -72,8 +72,6 @@ class CorrelationWorker:
                 alerts = await self.ai_correlator.correlate(event, related_events)
             except Exception as e:
                 ErrorHandler.handle_external_api_error(e, service_name="anthropic")
-                event_store.mark_as_failed(event.id)
-                return
             
             for alert in alerts:
                 event_store.add_alert(alert)
