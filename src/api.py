@@ -86,7 +86,7 @@ async def ingest_events(
                 detail="No events provided"
             )
         normalized_events = []
-        normalization_errors = []
+        normalized_errors = []
         for i, raw_event in enumerate(events):
             try:
                 raw_event["details"] = raw_event.get("details", {})
@@ -95,7 +95,7 @@ async def ingest_events(
                 normalized = normalize_event(raw_event)
                 normalized_events.append(normalized)
             except Exception as e:
-                normalization_errors.append({
+                normalized_errors.append({
                     "index": i,
                     "error": str(e)
                 })
@@ -113,13 +113,13 @@ async def ingest_events(
         status = "success"
         if ingested_count == 0:
             status = "failure"
-        elif ingestion_errors or normalization_errors:
+        elif ingestion_errors or normalized_errors:
             status = "partial_success"
         return {
             "status": status,
             "events_ingested": ingestion_count,
             "events_requested": len(events),
-            "normalization_errors": normalization_errors,
+            "normalized_errors": normalized_errors,
             "ingestion_errors": ingestion_errors,
             "client": client_name,
             "message": f"{len(normalized_events)} events ingested and stored successfully",
