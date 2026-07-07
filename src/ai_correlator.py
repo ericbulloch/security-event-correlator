@@ -127,7 +127,7 @@ Questions to answer:
 1. Do these events together suggest an attack? (yes/no)
 2. If yes, what type of attack? (brute force, exfiltration, privilege escalation, etc.)
 3. Confidence level? (0-100%)
-4. What evidence supports this conclusion? This should be a list of string evidence and datetime
+4. What evidence supports this conclusion? This should be a list of evidence objects. An evidence object has an event property that is a string and a timestamp property that is a datetime.
 5. What actions should be taken?
 
 Return ONLY valid JSON with no additional text:
@@ -137,7 +137,7 @@ Return ONLY valid JSON with no additional text:
   "severity": "low" | "medium" | "high" | "critical",
   "confidence": number (0-100),
   "description": string,
-  "evidence": [string, datetime],
+  "evidence": [evidence object that has an event property that is a string and a timestamp property that is a datetime],
   "recommended_actions": [string]
 }}"""
         
