@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, UTC
 import sqlite3
 import json
 
-from src.models import Alert, SecurityEvent
+from src.models import Alert, Evidence, SecurityEvent
 
 
 class EventStore:
