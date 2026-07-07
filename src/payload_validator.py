@@ -39,6 +39,11 @@ class PayloadValidator:
                        f"received: {len(events)}"
             )
         for i, event in enumerate(events):
+            if not isinstance(event, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Event {i} is not a valid event object"
+                )
             event_json = json.dumps(event)
             event_size = len(event_json.encode())
             if event_size > PayloadValidator.MAX_EVENT_SIZE:
