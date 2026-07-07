@@ -1,221 +1,337 @@
 from typing import List, Optional
 from datetime import datetime, timedelta, UTC
-import sqlite3
 import json
+import os
+import logging
+
+import psycopg
+from psycopg.rows import dict_row
 
 from src.models import Alert, Evidence, SecurityEvent
 
+logger = logging.getLogger(__name__)
+
 
 class EventStore:
-    def __init__(self, db_path: str = "events.db"):
-        self.db_path = db_path
+    """PostgreSQL-based event and alert store with connection pooling."""
+    
+    def __init__(self, connection_string: Optional[str] = None):
+        """
+        Initialize EventStore with PostgreSQL connection.
+        
+        Args:
+            connection_string: PostgreSQL connection string (postgresql://user:password@host/dbname)
+                              If not provided, uses DATABASE_URL environment variable
+        """
+        self.connection_string = connection_string or os.getenv(
+            "DATABASE_URL",
+            "postgresql://localhost/security_events"
+        )
         self._init_database()
     
+    def _get_connection(self):
+        """Get a new database connection."""
+        try:
+            return psycopg.connect(self.connection_string)
+        except psycopg.Error as e:
+            logger.error(f"Failed to connect to PostgreSQL: {str(e)}")
+            raise
+    
     def _init_database(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                source TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                user TEXT,
-                action TEXT NOT NULL,
-                resource TEXT,
-                details TEXT NOT NULL,
-                processed INTEGER DEFAULT 0,  -- 0=unprocessed, 1=processing, 2=processed, 3=failed
-                processed_at TEXT,
-                correlation_id TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source ON events(source)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                type TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                description TEXT NOT NULL,
-                evidence TEXT NOT NULL,
-                ai_reasoning TEXT NOT NULL,
-                confidence FLOAT NOT NULL,
-                recommended_actions TEXT NOT NULL
-            )
-        ''')
-
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)')
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS rate_limits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_name TEXT NOT NULL,
-                request_count INTEGER DEFAULT 0,
-                window_start TEXT NOT NULL,
-                UNIQUE(client_name, window_start)
-            )
-        ''')
-        
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_client_name_window_start ON rate_limits(client_name, window_start)')
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_hash TEXT NOT NULL UNIQUE,
-                client_name TEXT NOT NULL,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                last_used_at TEXT,
-                expires_at TEXT,
-                rate_limit INTEGER NOT NULL DEFAULT 100
-            )
-        ''')
-        
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_client_name ON api_keys(client_name)')
-        
-        conn.commit()
-        conn.close()
+        """Create all necessary tables and indexes."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Events table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    source VARCHAR(256) NOT NULL,
+                    event_type VARCHAR(256) NOT NULL,
+                    severity VARCHAR(50) NOT NULL,
+                    "user" VARCHAR(256),
+                    action VARCHAR(256) NOT NULL,
+                    resource VARCHAR(1024),
+                    details JSONB NOT NULL,
+                    processed INTEGER DEFAULT 0,
+                    processed_at TIMESTAMP,
+                    correlation_id UUID,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Alerts table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    type VARCHAR(256) NOT NULL,
+                    severity VARCHAR(50) NOT NULL,
+                    description TEXT NOT NULL,
+                    evidence JSONB NOT NULL,
+                    ai_reasoning TEXT NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    recommended_actions JSONB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Rate limits table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS rate_limits (
+                    id SERIAL PRIMARY KEY,
+                    client_name VARCHAR(256) NOT NULL,
+                    request_count INTEGER DEFAULT 0,
+                    window_start TIMESTAMP NOT NULL,
+                    UNIQUE(client_name, window_start)
+                )
+            ''')
+            
+            # API keys table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id SERIAL PRIMARY KEY,
+                    key_hash VARCHAR(64) NOT NULL UNIQUE,
+                    client_name VARCHAR(256) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used_at TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    rate_limit INTEGER NOT NULL DEFAULT 100
+                )
+            ''')
+            
+            # Create indexes
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source ON events(source)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_user ON events("user")')
+            
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)')
+            
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_client_window ON rate_limits(client_name, window_start)')
+            
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(client_name)')
+            
+            conn.commit()
+            logger.info("Database initialized successfully")
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to initialize database: {str(e)}")
+            raise
+        finally:
+            conn.close()
     
     def add_security_event(self, event: SecurityEvent) -> SecurityEvent:
-        event_id = self._event_to_sqlite(event)
+        """Add a single security event to the database."""
+        event_id = self._event_to_database(event)
         event.id = event_id
         return event
 
     def add_alert(self, alert: Alert) -> Alert:
-        alert_id = self._alert_to_sqlite(alert)
+        """Add a single alert to the database."""
+        alert_id = self._alert_to_database(alert)
         alert.id = alert_id
         return alert
     
-    def _event_to_sqlite(self, event: SecurityEvent) -> int:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO events 
-            (timestamp, source, event_type, severity, user, action, resource, details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            event.timestamp.isoformat(),
-            event.source,
-            event.event_type,
-            event.severity,
-            event.user,
-            event.action,
-            event.resource,
-            json.dumps(event.details)
-        ))
-        inserted_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
-        return inserted_id
+    def _event_to_database(self, event: SecurityEvent) -> int:
+        """Insert event and return its ID."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO events 
+                (timestamp, source, event_type, severity, "user", action, resource, details)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                event.timestamp,
+                event.source,
+                event.event_type,
+                event.severity,
+                event.user,
+                event.action,
+                event.resource,
+                json.dumps(event.details)
+            ))
+            event_id = cursor.fetchone()[0]
+            conn.commit()
+            return event_id
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to insert event: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
-    def _alert_to_sqlite(self, alert: Alert) -> int:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO alerts 
-            (timestamp, type, severity, description, evidence, ai_reasoning, confidence, recommended_actions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            alert.timestamp.isoformat(),
-            alert.type,
-            alert.severity,
-            alert.description,
-            json.dumps(alert.evidence),
-            alert.ai_reasoning,
-            alert.confidence,
-            json.dumps(alert.recommended_actions)
-        ))
-        inserted_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
-        return inserted_id
+    def _alert_to_database(self, alert: Alert) -> int:
+        """Insert alert and return its ID."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO alerts 
+                (timestamp, type, severity, description, evidence, ai_reasoning, confidence, recommended_actions)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (
+                alert.timestamp,
+                alert.type,
+                alert.severity,
+                alert.description,
+                json.dumps([ev.dict() for ev in alert.evidence]),
+                alert.ai_reasoning,
+                alert.confidence,
+                json.dumps(alert.recommended_actions)
+            ))
+            alert_id = cursor.fetchone()[0]
+            conn.commit()
+            return alert_id
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to insert alert: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
-    def get_alerts(self, limit: int, offset: int, severity: str) -> List[Alert]:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        if severity:
-            query = 'SELECT * FROM alerts WHERE severity = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
-            params = (severity, limit, offset)
-        else:
-            query = 'SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ? OFFSET ?'
-            params = (limit, offset)
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        column_names = [desc[0] for desc in cursor.description]
-        alerts = []
-        for row in rows:
-            row_dict = dict(zip(column_names, row))
-            evidence_list = json.loads(row_dict['evidence']) if isinstance(row_dict['evidence'], str) else []
-            row_dict['evidence'] = [
-                Evidence(**ev) if isinstance(ev, dict) else ev 
-                for ev in evidence_list
-            ]
-            row_dict['recommended_actions'] = json.loads(row_dict['recommended_actions']) if isinstance(row_dict['recommended_actions'], str) else []
-            alert = Alert(**row_dict)
-            alerts.append(alert)
-        conn.close()
-        
-        return alerts
+    def get_alerts(self, limit: int, offset: int, severity: Optional[str] = None) -> List[Alert]:
+        """Retrieve alerts with optional filtering by severity."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            
+            if severity:
+                cursor.execute('''
+                    SELECT * FROM alerts 
+                    WHERE severity = %s 
+                    ORDER BY timestamp DESC 
+                    LIMIT %s OFFSET %s
+                ''', (severity, limit, offset))
+            else:
+                cursor.execute('''
+                    SELECT * FROM alerts 
+                    ORDER BY timestamp DESC 
+                    LIMIT %s OFFSET %s
+                ''', (limit, offset))
+            
+            rows = cursor.fetchall()
+            alerts = []
+            
+            for row in rows:
+                # Deserialize evidence as Evidence objects
+                evidence_list = row['evidence'] if isinstance(row['evidence'], list) else []
+                evidence_objects = [
+                    Evidence(**ev) if isinstance(ev, dict) else ev 
+                    for ev in evidence_list
+                ]
+                
+                # Create Alert object
+                alert = Alert(
+                    id=row['id'],
+                    timestamp=row['timestamp'],
+                    type=row['type'],
+                    severity=row['severity'],
+                    description=row['description'],
+                    evidence=evidence_objects,
+                    ai_reasoning=row['ai_reasoning'],
+                    confidence=row['confidence'],
+                    recommended_actions=row['recommended_actions']
+                )
+                alerts.append(alert)
+            
+            return alerts
+        except psycopg.Error as e:
+            logger.error(f"Failed to retrieve alerts: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def count_alerts(self, severity: Optional[str] = None) -> int:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        if severity:
-            cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = ?', (severity,))
-        else:
-            cursor.execute('SELECT COUNT(*) FROM alerts')
-        num = cursor.fetchone()[0]
-        conn.close()
-
-        return num
+        """Count total alerts, optionally filtered by severity."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            if severity:
+                cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = %s', (severity,))
+            else:
+                cursor.execute('SELECT COUNT(*) FROM alerts')
+            
+            count = cursor.fetchone()[0]
+            return count
+        except psycopg.Error as e:
+            logger.error(f"Failed to count alerts: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def get_unprocessed_events(self, limit: int = 10) -> List[SecurityEvent]:
+        """Get unprocessed events for correlation."""
         query = '''
             SELECT * FROM events 
             WHERE processed = 0
             ORDER BY timestamp ASC
-            LIMIT ?
+            LIMIT %s
         '''
-        
         return self._get_events_by_query(query, (limit,))
 
     def mark_as_processing(self, event_id: int):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE events SET processed = 1 WHERE id = ?', (event_id,))
-        conn.commit()
-        conn.close()
+        """Mark event as currently being processed."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE events SET processed = 1 WHERE id = %s',
+                (event_id,)
+            )
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to mark event as processing: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def mark_as_processed(self, event_id: int):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE events SET processed = 2, processed_at = ? WHERE id = ?
-        ''', (datetime.now().isoformat(), event_id))
-        conn.commit()
-        conn.close()
+        """Mark event as successfully processed."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE events SET processed = 2, processed_at = %s WHERE id = %s',
+                (datetime.now(), event_id)
+            )
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to mark event as processed: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def mark_as_failed(self, event_id: int):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE events SET processed = 3, processed_at = ? WHERE id = ?
-        ''', (datetime.now().isoformat(), event_id))
-        conn.commit()
-        conn.close()
+        """Mark event as failed to process."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE events SET processed = 3, processed_at = %s WHERE id = %s',
+                (datetime.now(), event_id)
+            )
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to mark event as failed: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def get_events_for_correlation(
         self,
@@ -226,154 +342,213 @@ class EventStore:
         before: datetime,
         limit: int = 20
     ) -> List[SecurityEvent]:
-        event_type_where = ''
+        """Get events for correlation analysis."""
         if event_types:
-            placeholders = ','.join('?' * len(event_types))
-            event_type_where = f'AND event_type IN ({placeholders})'
-        query = f'''
-            SELECT * FROM events 
-            WHERE user = ?
-            AND source = ?
-            {event_type_where}
-            AND timestamp > ?
-            AND timestamp < ?
-            ORDER BY timestamp ASC
-            LIMIT ?
-        '''
-        if event_types:
-            params = (user, source, *event_types, after.isoformat(), before.isoformat(), limit)
+            placeholders = ','.join(['%s'] * len(event_types))
+            query = f'''
+                SELECT * FROM events 
+                WHERE "user" = %s
+                AND source = %s
+                AND event_type IN ({placeholders})
+                AND timestamp > %s
+                AND timestamp < %s
+                ORDER BY timestamp ASC
+                LIMIT %s
+            '''
+            params = (user, source, *event_types, after, before, limit)
         else:
-            params = (user, source, after.isoformat(), before.isoformat(), limit)
+            query = '''
+                SELECT * FROM events 
+                WHERE "user" = %s
+                AND source = %s
+                AND timestamp > %s
+                AND timestamp < %s
+                ORDER BY timestamp ASC
+                LIMIT %s
+            '''
+            params = (user, source, after, before, limit)
         
         return self._get_events_by_query(query, params)
 
     def _get_events_by_query(self, query: str, params: tuple) -> List[SecurityEvent]:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        column_names = [desc[0] for desc in cursor.description]
-        events = []
-        for row in rows:
-            row_dict = dict(zip(column_names, row))
-            event = SecurityEvent(
-                id=row_dict['id'],
-                timestamp=datetime.fromisoformat(row_dict['timestamp']),
-                source=row_dict['source'],
-                event_type=row_dict['event_type'],
-                severity=row_dict['severity'],
-                user=row_dict['user'],
-                action=row_dict['action'],
-                resource=row_dict['resource'],
-                details=json.loads(row_dict['details']) if isinstance(row_dict['details'], str) else row_dict['details']
-            )
-            events.append(event)
-        conn.close()
-        
-        return events
+        """Execute query and return SecurityEvent objects."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            events = []
+            for row in rows:
+                event = SecurityEvent(
+                    id=row['id'],
+                    timestamp=row['timestamp'],
+                    source=row['source'],
+                    event_type=row['event_type'],
+                    severity=row['severity'],
+                    user=row['user'],
+                    action=row['action'],
+                    resource=row['resource'],
+                    details=row['details'] if isinstance(row['details'], dict) else json.loads(row['details'])
+                )
+                events.append(event)
+            
+            return events
+        except psycopg.Error as e:
+            logger.error(f"Failed to retrieve events: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def check_rate_limit(self, client_name: str, limit: int) -> tuple[bool, int]:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        now = datetime.now()
-        window_start = (now - timedelta(minutes=1)).isoformat()
-        cursor.execute('''
-            DELETE FROM rate_limits WHERE window_start < ?
-        ''', (window_start,))
-        current_window = now.replace(second=0, microsecond=0).isoformat()
-        cursor.execute('''
-            INSERT INTO rate_limits (client_name, window_start, request_count)
-            VALUES (?, ?, 1)
-            ON CONFLICT(client_name, window_start)
-            DO UPDATE SET request_count = request_count + 1
-            WHERE request_count < ?
-        ''', (client_name, current_window, limit))
-        if cursor.rowcount == 0:
+        """Check if client has exceeded rate limit."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now()
+            window_start = (now - timedelta(minutes=1))
+            current_window = now.replace(second=0, microsecond=0)
+            
+            # Clean up old rate limit entries
+            cursor.execute('DELETE FROM rate_limits WHERE window_start < %s', (window_start,))
+            
+            # Try to insert or update rate limit
+            cursor.execute('''
+                INSERT INTO rate_limits (client_name, window_start, request_count)
+                VALUES (%s, %s, 1)
+                ON CONFLICT(client_name, window_start)
+                DO UPDATE SET request_count = rate_limits.request_count + 1
+                RETURNING request_count
+            ''', (client_name, current_window))
+            
+            request_count = cursor.fetchone()[0]
+            
+            if request_count > limit:
+                conn.rollback()
+                return False, 0
+            
+            conn.commit()
+            remaining = max(0, limit - request_count)
+            return True, remaining
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to check rate limit: {str(e)}")
+            raise
+        finally:
             conn.close()
-            return False, 0
-        cursor.execute('''
-            SELECT request_count FROM rate_limits 
-            WHERE client_name = ? AND window_start = ?
-        ''', (client_name, current_window))
-        request_count = cursor.fetchone()[0]
-        conn.commit()
-        conn.close()
-        remaining = max(0, limit - request_count)
     
-        return True, remaining
-    
-    def get_rate_limit_status(self, client_name: str, limit) -> dict:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        now = datetime.now()
-        current_window = now.replace(second=0, microsecond=0).isoformat()
-        cursor.execute('''
-            SELECT request_count FROM rate_limits 
-            WHERE client_name = ? AND window_start = ?
-        ''', (client_name, current_window))
-        row = cursor.fetchone()
-        request_count = row[0] if row else 0
-        conn.close()
-        window_end = datetime.fromisoformat(current_window) + timedelta(minutes=1)
-        
-        return {
-            "limit": limit,
-            "used": request_count,
-            "remaining": max(0, limit - request_count),
-            "reset_at": window_end.isoformat()
-        }
+    def get_rate_limit_status(self, client_name: str, limit: int) -> dict:
+        """Get current rate limit status for a client."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now()
+            current_window = now.replace(second=0, microsecond=0)
+            
+            cursor.execute('''
+                SELECT request_count FROM rate_limits 
+                WHERE client_name = %s AND window_start = %s
+            ''', (client_name, current_window))
+            
+            row = cursor.fetchone()
+            request_count = row[0] if row else 0
+            window_end = current_window + timedelta(minutes=1)
+            
+            return {
+                "limit": limit,
+                "used": request_count,
+                "remaining": max(0, limit - request_count),
+                "reset_at": window_end.isoformat()
+            }
+        except psycopg.Error as e:
+            logger.error(f"Failed to get rate limit status: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def mark_as_unprocessed(self, event_id: int):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE events SET processed = 0 WHERE id = ?', (event_id,))
-        conn.commit()
-        conn.close()
+        """Mark event as unprocessed."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE events SET processed = 0 WHERE id = %s', (event_id,))
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to mark event as unprocessed: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def create_api_key(self, key_hash: str, client_name: str, rate_limit: int = 100, expires_in_days: int = 365):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
-        cursor.execute('''
-            INSERT INTO api_keys 
-            (key_hash, client_name, is_active, rate_limit, expires_at)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (
-            key_hash,
-            client_name,
-            1,
-            rate_limit,
-            expires_at
-        ))
-        conn.commit()
-        conn.close()
+        """Create a new API key."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
+            
+            cursor.execute('''
+                INSERT INTO api_keys 
+                (key_hash, client_name, is_active, rate_limit, expires_at)
+                VALUES (%s, %s, TRUE, %s, %s)
+            ''', (key_hash, client_name, rate_limit, expires_at))
+            
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to create API key: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
-    def get_api_key(self, key_hash: str) -> dict:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM api_keys WHERE key_hash = ?', (key_hash, ))
-        row = cursor.fetchone()
-        column_names = [desc[0] for desc in cursor.description]
-        record = dict(zip(column_names, row))
-        conn.close()
-        
-        return record
+    def get_api_key(self, key_hash: str) -> Optional[dict]:
+        """Retrieve API key by hash."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            cursor.execute('SELECT * FROM api_keys WHERE key_hash = %s', (key_hash,))
+            row = cursor.fetchone()
+            
+            if row:
+                return dict(row)
+            return None
+        except psycopg.Error as e:
+            logger.error(f"Failed to retrieve API key: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
-    def update_last_used(self, key_hash_id: int):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (key_hash_id,))
-        conn.commit()
-        conn.close()
+    def update_last_used(self, key_id: int):
+        """Update last used timestamp for an API key."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = %s',
+                (key_id,)
+            )
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to update last_used: {str(e)}")
+            raise
+        finally:
+            conn.close()
     
     def count(self) -> int:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM events')
-        num = cursor.fetchone()[0]
-        conn.close()
+        """Count total events in database."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM events')
+            count = cursor.fetchone()[0]
+            return count
+        except psycopg.Error as e:
+            logger.error(f"Failed to count events: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
-        return num
 
-
+# Initialize event store with connection from environment
 event_store = EventStore()
