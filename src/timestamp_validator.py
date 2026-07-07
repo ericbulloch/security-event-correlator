@@ -47,8 +47,9 @@ class TimestampValidator:
                         detail="Invalid timestamp"
                     )
             now_utc = datetime.now(timezone.utc)
-            if parsed_ts > now_utc:
-                time_diff = (parsed_ts - now_utc).total_seconds()
+            grace_period = timedelta(seconds=30)
+            if parsed_ts > (now_utc + graceperiod):
+                time_diff = (parsed_ts - (now_utc + grace_period)).total_seconds()
                 logger.warning(f"Future timestamp rejected: {time_diff}s in future")
                 raise HTTPException(
                     status_code=400,
