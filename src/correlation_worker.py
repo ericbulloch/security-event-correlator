@@ -18,6 +18,7 @@ class CorrelationWorker:
         self.poll_interval = poll_interval
         self.ai_correlator = AICorrelator()
         self.is_running = False
+        self.processing_events = set()
 
     def _signal_handler(self):
         logger.info("Received shutdown signal, gracefully stopping...")
