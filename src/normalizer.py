@@ -1,9 +1,13 @@
 from datetime import datetime
+import logging
 import re
 from typing import Any, Dict, Optional
 
 from src.models import SecurityEvent
 from src.timestamp_validator import TimestampValidator
+
+
+logger = logging.getLogger(__name__)
 
 
 class EventNormalizer:
@@ -64,7 +68,10 @@ class EventNormalizer:
     @staticmethod
     def normalize_severity(severity_str: str) -> str:
         normalized = severity_str.lower().strip()
-        return EventNormalizer.SEVERITY_MAP.get(normalized, 'low')
+        if normalized not in EventNormalizer.SEVERITY_MAP:
+            logger.warning(f"Invalid severity type, originally: {severity_str}, normalized: {normalized}")
+            return 'low'
+        return EventNormalizer.SEVERITY_MAP[normalized]
     
     @staticmethod
     def normalize_event_type(event_type_str: str) -> str:
