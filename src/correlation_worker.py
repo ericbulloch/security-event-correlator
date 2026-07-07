@@ -2,6 +2,7 @@ from typing import List
 import asyncio
 from datetime import datetime, timedelta
 import logging
+import signal
 
 from src.ai_correlator import AICorrelator
 from src.correlation_rules import CorrelationRule
