@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Rule configuration (copy from config/rules.yml.example and customize locally)
+config/rules.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Local dev data
+events.db
+app.log
+
+# Virtual environments
+.venv/
+venv/
+env/

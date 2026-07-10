@@ -1,0 +1,69 @@
+services:
+  db:
+    # For production: pin to a SHA256 digest instead of a mutable tag.
+    # Run: docker inspect --format='{{index .RepoDigests 0}}' postgres:16-alpine
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-security_events}
+      POSTGRES_USER: ${POSTGRES_USER:-sec_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sec_user} -d ${POSTGRES_DB:-security_events}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    # For production: pin to a SHA256 digest instead of a mutable tag.
+    # Run: docker inspect --format='{{index .RepoDigests 0}}' rabbitmq:3-management-alpine
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-sec_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set in .env}
+    ports:
+      # Bound to localhost only — the management UI must not be reachable from outside the host.
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    command: ["sh", "-c", "alembic upgrade head && uvicorn src.api:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sec_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-security_events}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-sec_user}:${RABBITMQ_PASSWORD}@rabbitmq:5672/%2F
+    volumes:
+      # Mount config/ so rule changes take effect after a restart, not a full rebuild.
+      # If config/rules.yml does not exist the rules engine uses built-in defaults.
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "src.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sec_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-security_events}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-sec_user}:${RABBITMQ_PASSWORD}@rabbitmq:5672/%2F
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
