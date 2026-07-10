@@ -1,0 +1,132 @@
+# config/rules.yml.example
+#
+# Copy this file to config/rules.yml and customize for your environment.
+#
+#   cp config/rules.yml.example config/rules.yml
+#
+# config/rules.yml is gitignored so your tuning stays local.
+# This file (rules.yml.example) is the canonical reference — keep it updated
+# whenever you add a new rule or a new option to an existing rule.
+#
+# Each rule block has at minimum:
+#   enabled: true | false   — false disables the rule entirely without deleting it.
+#
+# All other options are rule-specific and documented inline below.
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # SSH Brute Force (T1110.001 — Brute Force: Password Guessing)
+  # Detects repeated failed login attempts against the same user on the same
+  # source system within a short time window.
+  #
+  # Reference:
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/linux/builtin/auth/lnx_auth_brute_force.yml
+  # ---------------------------------------------------------------------------
+  ssh_brute_force:
+    enabled: true
+
+    # Total failed login attempts (including the triggering event) required
+    # before the rule fires. Raise this on systems where legitimate tooling
+    # (password managers, scripts) retries on failure to reduce false positives.
+    threshold: 5
+
+    # Informational: the lookback window in seconds used when fetching recent
+    # events for correlation. This value is reflected in alert descriptions but
+    # the actual query window is controlled by CorrelationRule.get_lookback_window()
+    # in src/correlation_rules.py — keep the two in sync if you change this.
+    window_seconds: 60
+
+  # ---------------------------------------------------------------------------
+  # Sensitive File Access (T1003.008 — OS Credential Dumping: /etc/passwd and
+  # /etc/shadow; T1552.004 — Unsecured Credentials: Private Keys)
+  # Detects access to files commonly targeted during credential dumping,
+  # lateral movement, or post-exploitation reconnaissance on Linux systems.
+  #
+  # References:
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/linux/file_access/file_access_lin_susp_shadow_access.yml
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/linux/file_access/file_access_lin_etc_passwd_access.yml
+  # ---------------------------------------------------------------------------
+  sensitive_file_access:
+    enabled: true
+
+    # Case-insensitive substrings matched against the event's resource field.
+    # Add any additional paths relevant to your environment.
+    sensitive_paths:
+      - /etc/passwd
+      - /etc/shadow
+      - /etc/sudoers
+      - /.ssh/
+      - /root/
+      - authorized_keys
+      - id_rsa
+      - id_ed25519
+      - id_ecdsa
+      - .bash_history
+      - /var/log/auth
+      - /var/log/secure
+      - /proc/
+
+  # ---------------------------------------------------------------------------
+  # Port Scan (T1046 — Network Service Discovery)
+  # Detects a high volume of network connection events from the same source
+  # system in a short window, characteristic of nmap/masscan-style scanning.
+  #
+  # Reference:
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/network/net_scan_ports.yml
+  #
+  # Note: events with no user field will not accumulate context from previous
+  # events (PostgreSQL NULL = NULL is false). The rule still fires if a single
+  # event reaches the threshold on its own count — which won't happen at
+  # threshold: 10. This is a known limitation for anonymous network events.
+  # ---------------------------------------------------------------------------
+  port_scan:
+    enabled: true
+
+    # Total network_connection events (including the triggering event) within
+    # the window required to fire. Lower values increase sensitivity but also
+    # false positives on busy systems.
+    threshold: 10
+
+    # Informational: must stay in sync with CorrelationRule.get_lookback_window()
+    # for network_connection events (currently 300 seconds).
+    window_seconds: 300
+
+  # ---------------------------------------------------------------------------
+  # Privilege Escalation After Login (T1548 — Abuse Elevation Control Mechanism)
+  # Detects a privilege change (sudo, su, setuid) that follows a successful
+  # login on the same system within the lookback window — the classic CTF
+  # post-exploitation sequence.
+  #
+  # Reference:
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/linux/builtin/auth/lnx_auth_priv_esc_via_sudo.yml
+  # ---------------------------------------------------------------------------
+  privilege_escalation_after_login:
+    enabled: true
+
+    # Informational: must stay in sync with CorrelationRule.get_lookback_window()
+    # for privilege_change events (currently 300 seconds / 5 minutes).
+    window_seconds: 300
+
+  # ---------------------------------------------------------------------------
+  # IP Sweep / Coordinated Multi-Target Attack (T1018 — Remote System Discovery)
+  # Detects when the same source IP appears in events across multiple distinct
+  # systems within a short window.  This catches automated credential-stuffing
+  # campaigns, lateral movement scans, and broad reconnaissance that span your
+  # entire infrastructure — patterns that per-host rules (like ssh_brute_force)
+  # cannot see because they only look at one machine at a time.
+  #
+  # Reference:
+  #   https://github.com/SigmaHQ/sigma/blob/master/rules/network/net_scan_ports.yml
+  # ---------------------------------------------------------------------------
+  ip_sweep:
+    enabled: true
+
+    # Number of DISTINCT source systems the attacker IP must appear in before
+    # the rule fires.  Raise this in large environments where a shared NAT or
+    # proxy legitimately originates traffic to many hosts.
+    min_sources: 3
+
+    # Lookback window in seconds.  All events carrying the same IP within this
+    # window (across all sources) are considered together.
+    window_seconds: 600
