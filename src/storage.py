@@ -18,106 +18,14 @@ class EventStore:
             "DATABASE_URL",
             "postgresql://localhost/security_events"
         )
-        self._init_database()
-    
+
     def _get_connection(self):
         try:
             return psycopg.connect(self.connection_string)
         except psycopg.Error as e:
             logger.error(f"Failed to connect to PostgreSQL: {str(e)}")
             raise
-    
-    def _init_database(self):
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            
-            # Events table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS events (
-                    id SERIAL PRIMARY KEY,
-                    timestamp TIMESTAMP NOT NULL,
-                    source VARCHAR(256) NOT NULL,
-                    event_type VARCHAR(256) NOT NULL,
-                    severity VARCHAR(50) NOT NULL,
-                    "user" VARCHAR(256),
-                    action VARCHAR(256) NOT NULL,
-                    resource VARCHAR(1024),
-                    details JSONB NOT NULL,
-                    processed INTEGER DEFAULT 0,
-                    processed_at TIMESTAMP,
-                    correlation_id UUID,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Alerts table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS alerts (
-                    id SERIAL PRIMARY KEY,
-                    timestamp TIMESTAMP NOT NULL,
-                    type VARCHAR(256) NOT NULL,
-                    severity VARCHAR(50) NOT NULL,
-                    description TEXT NOT NULL,
-                    evidence JSONB NOT NULL,
-                    ai_reasoning TEXT NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    recommended_actions JSONB NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Rate limits table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS rate_limits (
-                    id SERIAL PRIMARY KEY,
-                    client_name VARCHAR(256) NOT NULL,
-                    request_count INTEGER DEFAULT 0,
-                    window_start TIMESTAMP NOT NULL,
-                    UNIQUE(client_name, window_start)
-                )
-            ''')
-            
-            # API keys table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS api_keys (
-                    id SERIAL PRIMARY KEY,
-                    key_hash VARCHAR(64) NOT NULL UNIQUE,
-                    client_name VARCHAR(256) NOT NULL,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_used_at TIMESTAMP,
-                    expires_at TIMESTAMP,
-                    rate_limit INTEGER NOT NULL DEFAULT 100
-                )
-            ''')
-            
-            # Create indexes
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_source ON events(source)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_user ON events("user")')
-            
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)')
-            
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_client_window ON rate_limits(client_name, window_start)')
-            
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_client ON api_keys(client_name)')
-            
-            conn.commit()
-            logger.info("Database initialized successfully")
-        except psycopg.Error as e:
-            conn.rollback()
-            logger.error(f"Failed to initialize database: {str(e)}")
-            raise
-        finally:
-            conn.close()
-    
+
     def add_security_event(self, event: SecurityEvent) -> SecurityEvent:
         event_id = self._event_to_database(event)
         event.id = event_id
@@ -134,6 +42,20 @@ class EventStore:
         return events[0] if events else None
 
     def add_alert(self, alert: Alert) -> Alert:
+        # If the alert carries a fingerprint, check whether an open alert with
+        # the same fingerprint already exists. If so, increment its hit count
+        # instead of creating a duplicate.
+        if alert.fingerprint:
+            existing = self._get_open_alert_by_fingerprint(alert.fingerprint)
+            if existing:
+                self._increment_alert_hit(existing["id"])
+                alert.id = existing["id"]
+                logger.info(
+                    "Alert deduplicated (id=%s, fingerprint=%s) — hit count incremented",
+                    existing["id"], alert.fingerprint[:8],
+                )
+                return alert
+
         alert_id = self._alert_to_database(alert)
         alert.id = alert_id
         return alert
@@ -144,8 +66,8 @@ class EventStore:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO events 
-                (timestamp, source, event_type, severity, "user", action, resource, details)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (timestamp, source, event_type, severity, "user", action, resource, details, raw_log)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 event.timestamp,
@@ -155,7 +77,8 @@ class EventStore:
                 event.user,
                 event.action,
                 event.resource,
-                json.dumps(event.details)
+                json.dumps(event.details),
+                event.raw_log,
             ))
             event_id = cursor.fetchone()[0]
             conn.commit()
@@ -173,8 +96,9 @@ class EventStore:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO alerts 
-                (timestamp, type, severity, description, evidence, ai_reasoning, confidence, recommended_actions)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (timestamp, type, severity, description, evidence, ai_reasoning,
+                 confidence, recommended_actions, fingerprint, status, hit_count, last_seen_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 alert.timestamp,
@@ -184,7 +108,11 @@ class EventStore:
                 json.dumps([ev.dict() for ev in alert.evidence]),
                 alert.ai_reasoning,
                 alert.confidence,
-                json.dumps(alert.recommended_actions)
+                json.dumps(alert.recommended_actions),
+                alert.fingerprint,
+                alert.status,
+                alert.hit_count,
+                alert.last_seen_at,
             ))
             alert_id = cursor.fetchone()[0]
             conn.commit()
@@ -196,35 +124,87 @@ class EventStore:
         finally:
             conn.close()
 
-    def get_alerts(self, limit: int, offset: int, severity: Optional[str] = None) -> List[Alert]:
+    def _get_open_alert_by_fingerprint(self, fingerprint: str) -> Optional[dict]:
         conn = self._get_connection()
         try:
             cursor = conn.cursor(row_factory=dict_row)
-            
+            cursor.execute(
+                "SELECT id FROM alerts WHERE fingerprint = %s AND status = 'open' LIMIT 1",
+                (fingerprint,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except psycopg.Error as e:
+            logger.error(f"Failed to look up alert by fingerprint: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def _increment_alert_hit(self, alert_id: int) -> None:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE alerts SET hit_count = hit_count + 1, last_seen_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (alert_id,),
+            )
+            conn.commit()
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to increment alert hit count: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def update_alert_status(self, alert_id: int, status: str) -> bool:
+        """Update the lifecycle status of an alert. Returns False if not found."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE alerts SET status = %s WHERE id = %s",
+                (status, alert_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to update alert status: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def get_alerts(
+        self,
+        limit: int,
+        offset: int,
+        severity: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[Alert]:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            conditions = []
+            params: list = []
             if severity:
-                cursor.execute('''
-                    SELECT * FROM alerts 
-                    WHERE severity = %s 
-                    ORDER BY timestamp DESC 
-                    LIMIT %s OFFSET %s
-                ''', (severity, limit, offset))
-            else:
-                cursor.execute('''
-                    SELECT * FROM alerts 
-                    ORDER BY timestamp DESC 
-                    LIMIT %s OFFSET %s
-                ''', (limit, offset))
-            
+                conditions.append("severity = %s")
+                params.append(severity)
+            if status:
+                conditions.append("status = %s")
+                params.append(status)
+            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            cursor.execute(
+                f"SELECT * FROM alerts {where} ORDER BY timestamp DESC LIMIT %s OFFSET %s",
+                [*params, limit, offset],
+            )
             rows = cursor.fetchall()
             alerts = []
-            
             for row in rows:
                 evidence_list = row['evidence'] if isinstance(row['evidence'], list) else []
                 evidence_objects = [
-                    Evidence(**ev) if isinstance(ev, dict) else ev 
+                    Evidence(**ev) if isinstance(ev, dict) else ev
                     for ev in evidence_list
                 ]
-                
                 alert = Alert(
                     id=row['id'],
                     timestamp=row['timestamp'],
@@ -234,10 +214,13 @@ class EventStore:
                     evidence=evidence_objects,
                     ai_reasoning=row['ai_reasoning'],
                     confidence=row['confidence'],
-                    recommended_actions=row['recommended_actions']
+                    recommended_actions=row['recommended_actions'],
+                    fingerprint=row.get('fingerprint'),
+                    status=row.get('status', 'open'),
+                    hit_count=row.get('hit_count', 1),
+                    last_seen_at=row.get('last_seen_at'),
                 )
                 alerts.append(alert)
-            
             return alerts
         except psycopg.Error as e:
             logger.error(f"Failed to retrieve alerts: {str(e)}")
@@ -245,18 +228,25 @@ class EventStore:
         finally:
             conn.close()
 
-    def count_alerts(self, severity: Optional[str] = None) -> int:
+    def count_alerts(
+        self,
+        severity: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> int:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            
+            conditions = []
+            params: list = []
             if severity:
-                cursor.execute('SELECT COUNT(*) FROM alerts WHERE severity = %s', (severity,))
-            else:
-                cursor.execute('SELECT COUNT(*) FROM alerts')
-            
-            count = cursor.fetchone()[0]
-            return count
+                conditions.append("severity = %s")
+                params.append(severity)
+            if status:
+                conditions.append("status = %s")
+                params.append(status)
+            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            cursor.execute(f"SELECT COUNT(*) FROM alerts {where}", params)
+            return cursor.fetchone()[0]
         except psycopg.Error as e:
             logger.error(f"Failed to count alerts: {str(e)}")
             raise
@@ -356,6 +346,28 @@ class EventStore:
         
         return self._get_events_by_query(query, params)
 
+    def get_events_by_ip(
+        self,
+        ip: str,
+        after: datetime,
+        before: datetime,
+        limit: int = 100,
+    ) -> List[SecurityEvent]:
+        """
+        Return all events whose details->>'ip' matches `ip` within the given
+        time window, across ALL sources and users.  Used by IP-context rules
+        (e.g. IPSweepRule) to detect coordinated multi-target attacks.
+        """
+        query = """
+            SELECT * FROM events
+            WHERE details->>'ip' = %s
+            AND timestamp > %s
+            AND timestamp <= %s
+            ORDER BY timestamp ASC
+            LIMIT %s
+        """
+        return self._get_events_by_query(query, (ip, after, before, limit))
+
     def _get_events_by_query(self, query: str, params: tuple) -> List[SecurityEvent]:
         conn = self._get_connection()
         try:
@@ -374,13 +386,70 @@ class EventStore:
                     user=row['user'],
                     action=row['action'],
                     resource=row['resource'],
-                    details=row['details'] if isinstance(row['details'], dict) else json.loads(row['details'])
+                    details=row['details'] if isinstance(row['details'], dict) else json.loads(row['details']),
+                    raw_log=row.get('raw_log'),
                 )
                 events.append(event)
             
             return events
         except psycopg.Error as e:
             logger.error(f"Failed to retrieve events: {str(e)}")
+            raise
+        finally:
+            conn.close()
+
+    def get_user_by_username(self, username: str) -> Optional[dict]:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            cursor.execute(
+                "SELECT * FROM users WHERE username = %s AND is_active = TRUE LIMIT 1",
+                (username,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except psycopg.Error as e:
+            logger.error(f"Failed to get user by username: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def create_user_account(
+        self,
+        username: str,
+        email: Optional[str],
+        password_hash: str,
+        is_admin: bool = False,
+    ) -> dict:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            cursor.execute(
+                """
+                INSERT INTO users (username, email, password_hash, is_admin)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id, username, email, is_admin, created_at
+                """,
+                (username, email, password_hash, is_admin),
+            )
+            row = cursor.fetchone()
+            conn.commit()
+            return dict(row)
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.error(f"Failed to create user account: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def user_exists(self, username: str) -> bool:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM users WHERE username = %s LIMIT 1", (username,))
+            return cursor.fetchone() is not None
+        except psycopg.Error as e:
+            logger.error(f"Failed to check user existence: {e}")
             raise
         finally:
             conn.close()
@@ -498,13 +567,29 @@ class EventStore:
         finally:
             conn.close()
 
-    def update_last_used(self, key_id: int):
+    def get_api_key_by_client(self, client_name: str) -> Optional[dict]:
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(row_factory=dict_row)
+            cursor.execute(
+                'SELECT * FROM api_keys WHERE client_name = %s LIMIT 1',
+                (client_name,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except psycopg.Error as e:
+            logger.error(f"Failed to retrieve API key by client: {str(e)}")
+            raise
+        finally:
+            conn.close()
+
+    def update_last_used(self, key_hash: str):
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                'UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = %s',
-                (key_id,)
+                'UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE key_hash = %s',
+                (key_hash,)
             )
             conn.commit()
         except psycopg.Error as e:

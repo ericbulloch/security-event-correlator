@@ -41,5 +41,9 @@ class CorrelationRule:
             return ['database_query', 'network_connection', 'file_access']
         if event.event_type == 'file_access':
             return ['file_access', 'network_connection', 'login_attempt']
-        
+        if event.event_type == 'privilege_change':
+            # Include login_attempt so the PrivilegeEscalationRule can check
+            # whether a successful login preceded this privilege change.
+            return ['privilege_change', 'login_attempt']
+
         return [event.event_type]

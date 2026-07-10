@@ -158,6 +158,11 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
     details = raw_event.get('details', {})
     if not isinstance(details, dict):
         details = {}
+    # Preserve the original log line verbatim for analyst triage.
+    # Truncated at 2048 chars to guard against oversized payloads.
+    raw_log = raw_event.get('raw_log')
+    if raw_log is not None:
+        raw_log = str(raw_log)[:2048]
     event = SecurityEvent(
         timestamp=timestamp,
         source=source,
@@ -166,7 +171,8 @@ def normalize_event(raw_event: Dict[str, Any]) -> SecurityEvent:
         user=user,
         action=action,
         resource=resource,
-        details=details
+        details=details,
+        raw_log=raw_log,
     )
     event = EventNormalizer.enrich_event(event)
     return event
