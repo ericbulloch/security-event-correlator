@@ -13,7 +13,7 @@ from src.storage import event_store
 DEV_CLIENT_NAME = 'local-dev'
 DEV_KEY_OVERRIDE = os.getenv('DEV_API_KEY')
 DEV_ADMIN_USERNAME = os.getenv('DEV_ADMIN_USERNAME', 'admin')
-DEV_ADMIN_PASSWORD = os.getenv('DEV_ADMIN_PASSWORD', 'change-me-in-production')
+DEV_ADMIN_PASSWORD = os.getenv('DEV_ADMIN_PASSWORD', 'admin')
 
 
 def seed():

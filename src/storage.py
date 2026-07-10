@@ -16,12 +16,13 @@ class EventStore:
     def __init__(self, connection_string: Optional[str] = None):
         self.connection_string = connection_string or os.getenv(
             "DATABASE_URL",
-            "postgresql://localhost/security_events"
+            "postgresql+psycopg://localhost/security_events"
         )
 
     def _get_connection(self):
         try:
-            return psycopg.connect(self.connection_string)
+            dsn = self.connection_string.replace('postgresql+psycopg://', 'postgresql://')
+            return psycopg.connect(dsn)
         except psycopg.Error as e:
             logger.error(f"Failed to connect to PostgreSQL: {str(e)}")
             raise
