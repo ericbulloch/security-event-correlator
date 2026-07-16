@@ -245,3 +245,18 @@ docker compose down -v
 docker compose up --build -d
 ```
 
+## Roadmap
+
+1. Add threat intelligence feeds (VirusTotal, MISP, AlienVault OTX) to enrich events before the rules engine runs.
+2. UEBA (User and Entity Behavior Analytics) to learn what "normal" looks like per user/host and alerting on deviations. Alerts will be able to fire on statistical anomalies.
+3. MITRE ATT&CK mapping so that alerts can be tagged with technique IDs (T1110.001 etc.). Analysts will know immediately where in the kill chain an alert falls.
+4. Exceptional case handling so that alerts will never fire on brute force attempts from a vulnerability scanner IP address.
+5. Ability to create incidents and group related alerts into a single investigation.
+6. Escalation policies so that a critical alert will auto-escalate if nobody acknowleges it within 15 minutes.
+7. Notifications through email and Slack when a critical alert fires.
+8. Add playbooks with structured response steps attached to an alert type. i.e. When a brute force happens: 1) check if account is locked, 2) check for successful login after, 3) escalate if yes
+9. Audit trail of the SIEM itself. The system should be able to answer questions like: Who viewed alert X? Who changed its status?
+10. Compliance reports for auditors who want evidence of things like "we logged all privileged access for the last 90 days".
+11. Searching & threat hunting. Currently there is no way to ask ad-hoc questions like "show me all events for this IP address in the last 30 days".
+12. There are only a handful of rules. Many more rules need to be added.
+13. Rule tuning UI. Currently changing a threshold means editing a YAML file and redeploying. Analysts need to tune a rule without touching code.
